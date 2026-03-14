@@ -398,3 +398,36 @@ func (c *CacheFile) SaveWARPConfig(tag string, set *adapter.SavedBinary) error {
 		return bucket.Put([]byte(tag), configBinary)
 	})
 }
+
+func (c *CacheFile) LoadSubscription(tag string) *adapter.SavedBinary {
+	var savedSet adapter.SavedBinary
+	err := c.DB.View(func(t *bbolt.Tx) error {
+		bucket := c.bucket(t, bucketRuleSet)
+		if bucket == nil {
+			return os.ErrNotExist
+		}
+		setBinary := bucket.Get([]byte(tag))
+		if len(setBinary) == 0 {
+			return os.ErrInvalid
+		}
+		return savedSet.UnmarshalBinary(setBinary)
+	})
+	if err != nil {
+		return nil
+	}
+	return &savedSet
+}
+
+func (c *CacheFile) SaveSubscription(tag string, sub *adapter.SavedBinary) error {
+	return c.DB.Batch(func(t *bbolt.Tx) error {
+		bucket, err := c.createBucket(t, bucketRuleSet)
+		if err != nil {
+			return err
+		}
+		setBinary, err := sub.MarshalBinary()
+		if err != nil {
+			return err
+		}
+		return bucket.Put([]byte(tag), setBinary)
+	})
+}

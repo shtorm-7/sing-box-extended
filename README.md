@@ -12,6 +12,7 @@ Sing-box with extended features.
 * SDNS (DNSCrypt)
 * Extended Wireguard options
 * Unified delay
+* Subscription providers
 
 ## Examples
 
