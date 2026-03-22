@@ -24,7 +24,7 @@ func parseRawSubscription(content string) ([]option.Outbound, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	linkList := strings.Split(content, "\n")
 	for _, linkLine := range linkList {
-		server, err := ParseSubscriptionLink(linkLine)
+		server, err := defaultParser.ParseSubscriptionLink(linkLine)
 		if err != nil {
 			continue
 		}

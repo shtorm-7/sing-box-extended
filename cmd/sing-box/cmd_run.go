@@ -12,10 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sagernet/sing-box"
+	box "github.com/sagernet/sing-box"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing-box/provider/parser"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badjson"
@@ -142,6 +143,14 @@ func create() (*box.Box, context.CancelFunc, error) {
 		cancel()
 		return nil, nil, E.Cause(err, "create service")
 	}
+
+	// PERF: Костыльно, хотелось бы переделать.
+	// Устанавливает этот логгер как стандартный.
+	// В cmd_run.go небыло вызова log.SetStdLogger() после создания box.
+	// В отличие от daemon/instance.go, здесь логгер из конфига не устанавливается
+	// как стандартный.
+	log.SetStdLogger(instance.LogFactory().Logger())
+	parser.SetLogger(instance.LogFactory().NewLogger("parser"))
 
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)

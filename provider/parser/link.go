@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -8,16 +9,42 @@ import (
 	"strings"
 	"time"
 
+	Xbadoption "github.com/sagernet/sing-box/common/xray/json/badoption"
 	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/byteformats"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
-	"github.com/sagernet/sing/common/json"
+	"github.com/sagernet/sing/common/logger"
+
+	// "github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badoption"
 )
 
-func ParseSubscriptionLink(link string) (option.Outbound, error) {
+// SubscriptionParser - парсер подписок с логгером.
+type SubscriptionParser struct {
+	logger logger.ContextLogger
+}
+
+// PERF: Костыльно, хотелось бы переделать.
+// NewSubscriptionParser создаёт новый парсер с указанным логгером.
+func NewSubscriptionParser(logger log.ContextLogger) *SubscriptionParser {
+	return &SubscriptionParser{logger: logger}
+}
+
+// PERF: Костыльно, хотелось бы переделать.
+// SetLogger устанавливает логгер для парсера по умолчанию.
+// Вызовите эту функцию при инициализации для использования логгера с тегом "parser".
+func SetLogger(l log.ContextLogger) {
+	defaultParser = NewSubscriptionParser(l)
+}
+
+// PERF: Костыльно, хотелось бы переделать.
+var defaultParser = NewSubscriptionParser(log.StdLogger())
+
+// ParseSubscriptionLink парсит ссылку подписки и возвращает опции outbound.
+func (s *SubscriptionParser) ParseSubscriptionLink(link string) (option.Outbound, error) {
 	reg := regexp.MustCompile(`^(.*?)(://)(.*?)([@?#].*)?$`)
 	result := reg.FindStringSubmatch(link)
 	if result == nil {
@@ -27,23 +54,23 @@ func ParseSubscriptionLink(link string) (option.Outbound, error) {
 	scheme := result[1]
 	switch scheme {
 	case "tuic":
-		return parseTuicLink(link)
+		return s.parseTuicLink(link)
 	case "trojan":
-		return parseTrojanLink(link)
+		return s.parseTrojanLink(link)
 	case "vless":
-		return parseVLESSLink(link)
+		return s.parseVLESSLink(link)
 	case "hysteria":
-		return parseHysteriaLink(link)
+		return s.parseHysteriaLink(link)
 	case "hy2", "hysteria2":
-		return parseHysteria2Link(link)
+		return s.parseHysteria2Link(link)
 	}
 	result[3], _ = DecodeBase64URLSafe(result[3])
 	link = strings.Join(result[1:], "")
 	switch scheme {
 	case "ss":
-		return parseShadowsocksLink(link)
+		return s.parseShadowsocksLink(link)
 	case "vmess":
-		return parseVMessLink(link)
+		return s.parseVMessLink(link)
 	default:
 		return option.Outbound{}, E.New("unsupported scheme: ", scheme)
 	}
@@ -93,6 +120,24 @@ func StringToType[T any](str string) T {
 	return value
 }
 
+// RU:
+// parseXHTTPRange парсит строку диапазона (например, "100-1000" или "30")
+// и преобразует её в тип Xbadoption.Range для использования в параметрах xhttp транспорта.
+//
+// EN:
+// parseXHTTPRange parses a range string (e.g., "100-1000" or "30") and converts
+// it to the Xbadoption.Range type for use in xhttp transport parameters.
+func parseXHTTPRange(str string) Xbadoption.Range {
+	parts := strings.Split(str, "-")
+	if len(parts) != 2 {
+		from, _ := strconv.ParseInt(parts[0], 10, 32)
+		return Xbadoption.Range{From: int32(from), To: int32(from)}
+	}
+	from, _ := strconv.ParseInt(parts[0], 10, 32)
+	to, _ := strconv.ParseInt(parts[1], 10, 32)
+	return Xbadoption.Range{From: int32(from), To: int32(to)}
+}
+
 func shadowsocksPluginName(plugin string) string {
 	if index := strings.Index(plugin, ";"); index != -1 {
 		return plugin[:index]
@@ -128,7 +173,7 @@ func v2rayTransportWs(host string, path string) option.V2RayWebsocketOptions {
 	return WebsocketOptions
 }
 
-func parseShadowsocksLink(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseShadowsocksLink(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err
@@ -157,7 +202,7 @@ func parseShadowsocksLink(link string) (option.Outbound, error) {
 	return outbound, nil
 }
 
-func parseTuicLink(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseTuicLink(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err
@@ -226,7 +271,7 @@ func parseTuicLink(link string) (option.Outbound, error) {
 	return outbound, nil
 }
 
-func parseVMessLink(link string) (option.Outbound, error) {
+func (p *SubscriptionParser) parseVMessLink(link string) (option.Outbound, error) {
 	var proxy map[string]string
 	reg := regexp.MustCompile(`(\"[^:,]+?\"[ \t]*:[ \t]*)(\d+|true|false)`)
 	s := reg.ReplaceAllString(link, `$1"$2"`)
@@ -372,7 +417,7 @@ func parseVMessLink(link string) (option.Outbound, error) {
 	return outbound, nil
 }
 
-func parseVLESSLink(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseVLESSLink(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err
@@ -421,6 +466,104 @@ func parseVLESSLink(link string) (option.Outbound, error) {
 				}
 				if path, exists := proxy["path"]; exists && path != "" {
 					Transport.HTTPOptions.Path = path
+				}
+			// RU: Парсинг параметров для xhttp
+			// EN: Parsing parameters for xhttp
+			case "xhttp":
+				Transport.Type = C.V2RayTransportTypeXHTTP
+
+				// RU:
+				// Окончательно исправляет неработоспособность xhttp.
+				//
+				// При парсинге транспорта xhttp теперь автоматически устанавливается
+				// ALPN = ["h2", "http/1.1"] по умолчанию. Если в ссылке явно указан
+				// параметр alpn, он перезапишет значение по умолчанию.
+				//
+				// PERF:
+				// Мне кажется это как-то костыльно, и не должно быть так (наверное).
+				// Другие клиенты не обязаны указывать этот параметр.
+				// Возможно я что-то не понимаю, хотя всё равно h3 нам не видать
+				// (т.к h3 это QUIC)
+				// TLSOptions.ALPN = []string{"h2"}
+				//
+				// EN:
+				// It seems a bit clumsy to me, and it probably shouldn't be that way.
+				//
+				// When parsing the xhttp transport, ALPN is now automatically set
+				// to ["h2", "http/1.1"] by default. If the alpn parameter is explicitly
+				// specified in the URL, it will override the default value.
+				//
+				// PERF:
+				// This seems like a workaround to me, and it shouldn't be that way.
+				// Other clients aren't required to specify this parameter.
+				// Maybe I'm missing something, though we won't be seeing h3 anyway (since h3 is QUIC)
+				TLSOptions.ALPN = []string{"h2", "http/1.1"}
+
+				if host, exists := proxy["host"]; exists && host != "" {
+					Transport.XHTTPOptions.Host = host
+				}
+				if path, exists := proxy["path"]; exists && path != "" {
+					Transport.XHTTPOptions.Path = path
+				}
+				if mode, exists := proxy["mode"]; exists && mode != "" {
+					Transport.XHTTPOptions.Mode = mode
+				}
+				// Парсинг extra (base64-encoded JSON) из ссылки внутри подписки.
+				// INFO: DEBUG parser появляется только при начальной инициализации
+				// вашей конфигурации, т.е чтобы повявились json dump логи каждого
+				// outbound'а из вашей подписки необходоимо удалить cache.db файл и
+				// запустить sing-box-extended по новой
+				if extra, exists := proxy["extra"]; exists && extra != "" {
+					decodedExtra, err := DecodeBase64URLSafe(extra)
+					// DEBUG parser
+					// RU: Вывод раскодированного extra
+					// EN: Display the decoded extra
+					s.logger.Debug("decoded extra parameters for outbound \"", linkURL.Fragment, "\": ", string(decodedExtra))
+
+					if err == nil {
+						var extraOptions map[string]interface{}
+						if json.Unmarshal([]byte(decodedExtra), &extraOptions) == nil {
+							if xmux, ok := extraOptions["xmux"].(map[string]interface{}); ok {
+								Transport.XHTTPOptions.Xmux = &option.V2RayXHTTPXmuxOptions{}
+								if val, ok := xmux["cMaxReuseTimes"].(float64); ok {
+									Transport.XHTTPOptions.Xmux.CMaxReuseTimes = Xbadoption.Range{From: int32(val), To: int32(val)}
+								}
+								if val, ok := xmux["maxConcurrency"].(string); ok {
+									Transport.XHTTPOptions.Xmux.MaxConcurrency = parseXHTTPRange(val)
+								}
+								if val, ok := xmux["maxConnections"].(float64); ok {
+									Transport.XHTTPOptions.Xmux.MaxConnections = Xbadoption.Range{From: int32(val), To: int32(val)}
+								}
+								if val, ok := xmux["hKeepAlivePeriod"].(float64); ok {
+									Transport.XHTTPOptions.Xmux.HKeepAlivePeriod = int64(val)
+								}
+								if val, ok := xmux["hMaxRequestTimes"].(string); ok {
+									Transport.XHTTPOptions.Xmux.HMaxRequestTimes = parseXHTTPRange(val)
+								}
+								if val, ok := xmux["hMaxReusableSecs"].(string); ok {
+									Transport.XHTTPOptions.Xmux.HMaxReusableSecs = parseXHTTPRange(val)
+								}
+							}
+							if val, ok := extraOptions["noGRPCHeader"].(bool); ok {
+								Transport.XHTTPOptions.NoGRPCHeader = val
+							}
+							if val, ok := extraOptions["xPaddingBytes"].(string); ok {
+								Transport.XHTTPOptions.XPaddingBytes = parseXHTTPRange(val)
+							}
+							if val, ok := extraOptions["scMaxEachPostBytes"].(float64); ok {
+								Transport.XHTTPOptions.ScMaxEachPostBytes = Xbadoption.Range{From: int32(val), To: int32(val)}
+							}
+							if val, ok := extraOptions["scMinPostsIntervalMs"].(float64); ok {
+								Transport.XHTTPOptions.ScMinPostsIntervalMs = Xbadoption.Range{From: int32(val), To: int32(val)}
+							}
+							if val, ok := extraOptions["scStreamUpServerSecs"].(string); ok {
+								Transport.XHTTPOptions.ScStreamUpServerSecs = parseXHTTPRange(val)
+							}
+							// TODO:
+							// RU: Реализовать парсинг `extra.download`
+							// EN: Implement parsing for `extra.download`
+						}
+					}
 				}
 			case "grpc":
 				Transport.Type = C.V2RayTransportTypeGRPC
@@ -471,10 +614,25 @@ func parseVLESSLink(link string) (option.Outbound, error) {
 		options.TLS = &TLSOptions
 	}
 	outbound.Options = &options
+
+	// DEBUG parser
+	//
+	// RU: Json dump каждых vless:// ссылок в каждой подписке.
+	// INFO: Нужно добавить `import "encoding/json" "fmt"` и убрать
+	// "github.com/sagernet/sing/common/json"
+	//
+	// EN: JSON dump of every vless:// link in each subscription.
+	// INFO: You need to add `import "encoding/json" "fmt"` and remove
+	// `"github.com/sagernet/sing/common/json"`
+	optionsjson, err := json.Marshal(options)
+	if err == nil {
+		s.logger.Debug("final parsed options for outbound \"", linkURL.Fragment, "\": ", string(optionsjson))
+	}
+
 	return outbound, nil
 }
 
-func parseTrojanLink(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseTrojanLink(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err
@@ -551,7 +709,7 @@ func parseTrojanLink(link string) (option.Outbound, error) {
 	return outbound, nil
 }
 
-func parseHysteriaLink(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseHysteriaLink(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err
@@ -610,7 +768,7 @@ func parseHysteriaLink(link string) (option.Outbound, error) {
 	return outbound, nil
 }
 
-func parseHysteria2Link(link string) (option.Outbound, error) {
+func (s *SubscriptionParser) parseHysteria2Link(link string) (option.Outbound, error) {
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return option.Outbound{}, err

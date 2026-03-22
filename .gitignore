@@ -2,6 +2,7 @@
 /.vscode/
 /vendor/
 /*.json
+/*.txt
 /*.srs
 /*.db
 /site/
