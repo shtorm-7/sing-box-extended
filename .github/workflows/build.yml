@@ -645,11 +645,11 @@ jobs:
       - name: Update version
         if: github.event_name == 'workflow_dispatch'
         run: |-
-          go run -v ./cmd/internal/update_android_version --ci
+          go run -v ./cmd/internal/update_android_version --ci || true
       - name: Update nightly version
         if: github.event_name != 'workflow_dispatch'
         run: |-
-          go run -v ./cmd/internal/update_android_version --ci --nightly
+          go run -v ./cmd/internal/update_android_version --ci --nightly || true
       - name: Build
         run: |-
           mkdir clients/android/app/libs
@@ -901,18 +901,18 @@ jobs:
         run: |-
           pushd clients/apple
           xcodebuild -exportArchive \
-          	-archivePath "${{ matrix.archive }}" \
-          	-exportOptionsPlist ${{ matrix.export }} \
-          	-exportPath "${{ matrix.export_path }}"
+                  -archivePath "${{ matrix.archive }}" \
+                  -exportOptionsPlist ${{ matrix.export }} \
+                  -exportPath "${{ matrix.export_path }}"
           brew install create-dmg
           create-dmg \
-          	--volname "sing-box" \
-          	--volicon "${{ matrix.export_path }}/SFM.app/Contents/Resources/AppIcon.icns" \
-          	--icon "SFM.app" 0 0 \
-          		--hide-extension "SFM.app" \
-          		--app-drop-link 0 0 \
-          		--skip-jenkins \
-          	SFM.dmg "${{ matrix.export_path }}/SFM.app"
+                  --volname "sing-box" \
+                  --volicon "${{ matrix.export_path }}/SFM.app/Contents/Resources/AppIcon.icns" \
+                  --icon "SFM.app" 0 0 \
+                          --hide-extension "SFM.app" \
+                          --app-drop-link 0 0 \
+                          --skip-jenkins \
+                  SFM.dmg "${{ matrix.export_path }}/SFM.app"
           xcrun notarytool submit "SFM.dmg" --wait --keychain-profile "notarytool-password"
           cd "${{ matrix.archive }}"
           zip -r SFM.dSYMs.zip dSYMs
@@ -980,4 +980,4 @@ jobs:
           export PATH="$PATH:$HOME/go/bin"
           ghr --replace -p 5 "v${VERSION}" dist
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
