@@ -172,11 +172,18 @@ func ApplyXPaddingToHeader(h http.Header, config XPaddingConfig) {
 	paddingValue := GeneratePadding(config.Method, config.Length)
 	switch p := config.Placement; p.Placement {
 	case option.PlacementHeader:
-		h.Set(p.Header, paddingValue)
+		if p.Header != "" {
+			h.Set(p.Header, paddingValue)
+		}
 	case option.PlacementQueryInHeader:
+		if p.Header == "" || p.Key == "" {
+			return
+		}
 		u, err := url.Parse(p.RawURL)
 		if err != nil || u == nil {
-			return
+			// No source URL (e.g., server response side): fall back to a
+			// synthetic relative URL so the wire shape stays "?key=value".
+			u = &url.URL{Path: "/"}
 		}
 		u.RawQuery = p.Key + "=" + paddingValue
 		h.Set(p.Header, u.String())
@@ -205,16 +212,79 @@ func ApplyXPaddingToRequest(req *http.Request, config XPaddingConfig) {
 }
 
 func ApplyXPaddingToResponse(writer http.ResponseWriter, config XPaddingConfig) {
-	placement := config.Placement.Placement
-	if placement == option.PlacementHeader || placement == option.PlacementQueryInHeader {
-		ApplyXPaddingToHeader(writer.Header(), config)
+	if writer == nil {
 		return
 	}
-	paddingValue := GeneratePadding(config.Method, config.Length)
+	placement := config.Placement.Placement
+	switch placement {
+	case option.PlacementHeader, option.PlacementQueryInHeader:
+		ApplyXPaddingToHeader(writer.Header(), config)
+	case option.PlacementCookie:
+		paddingValue := GeneratePadding(config.Method, config.Length)
+		ApplyPaddingToResponseCookie(writer, config.Placement.Key, paddingValue)
+	case option.PlacementQuery:
+		// Query placement makes no sense for a response (no request URL).
+		// Fall back to a header so the response still carries padding for
+		// traffic-shape symmetry.
+		paddingValue := GeneratePadding(config.Method, config.Length)
+		headerName := config.Placement.Header
+		if headerName == "" {
+			headerName = "X-Padding"
+		}
+		writer.Header().Set(headerName, paddingValue)
+	}
+}
+
+// extractFromPlacement reads the padding value from a single placement only.
+// Returns ("", "") if not found there.
+func extractFromPlacement(req *http.Request, placement, key, header string) (string, string) {
 	switch placement {
 	case option.PlacementCookie:
-		ApplyPaddingToResponseCookie(writer, config.Placement.Key, paddingValue)
+		if key == "" {
+			return "", ""
+		}
+		cookie, err := req.Cookie(key)
+		if err != nil || cookie == nil || cookie.Value == "" {
+			return "", ""
+		}
+		return cookie.Value, option.PlacementCookie + ", key=" + key
+	case option.PlacementHeader:
+		if header == "" {
+			return "", ""
+		}
+		v := req.Header.Get(header)
+		if v == "" {
+			return "", ""
+		}
+		return v, option.PlacementHeader + "=" + header
+	case option.PlacementQueryInHeader:
+		if header == "" || key == "" {
+			return "", ""
+		}
+		hv := req.Header.Get(header)
+		if hv == "" {
+			return "", ""
+		}
+		parsedURL, err := url.Parse(hv)
+		if err != nil || parsedURL == nil {
+			return "", ""
+		}
+		v := parsedURL.Query().Get(key)
+		if v == "" {
+			return "", ""
+		}
+		return v, option.PlacementQueryInHeader + "=" + header + ", key=" + key
+	case option.PlacementQuery:
+		if key == "" || req.URL == nil {
+			return "", ""
+		}
+		v := req.URL.Query().Get(key)
+		if v == "" {
+			return "", ""
+		}
+		return v, option.PlacementQuery + ", key=" + key
 	}
+	return "", ""
 }
 
 func ExtractXPaddingFromRequest(options *option.V2RayXHTTPBaseOptions, req *http.Request, obfsMode bool) (string, string) {
@@ -222,44 +292,62 @@ func ExtractXPaddingFromRequest(options *option.V2RayXHTTPBaseOptions, req *http
 		return "", ""
 	}
 	if !obfsMode {
+		// Non-obfs (legacy) mode: padding is in Referer query, or URL query
+		// if no Referer is present. Never fall through into the obfs paths.
 		referrer := req.Header.Get("Referer")
 		if referrer != "" {
-			if referrerURL, err := url.Parse(referrer); err == nil {
-				paddingValue := referrerURL.Query().Get("x_padding")
-				paddingPlacement := option.PlacementQueryInHeader + "=Referer, key=x_padding"
-				return paddingValue, paddingPlacement
+			referrerURL, err := url.Parse(referrer)
+			if err != nil {
+				return "", option.PlacementQueryInHeader + "=Referer (unparseable)"
 			}
-		} else {
-			paddingValue := req.URL.Query().Get("x_padding")
-			return paddingValue, option.PlacementQuery + ", key=x_padding"
+			return referrerURL.Query().Get("x_padding"), option.PlacementQueryInHeader + "=Referer, key=x_padding"
 		}
+		if req.URL != nil {
+			return req.URL.Query().Get("x_padding"), option.PlacementQuery + ", key=x_padding"
+		}
+		return "", ""
 	}
+
+	// obfs mode: read padding from the configured placement.
 	key := options.XPaddingKey
 	header := options.XPaddingHeader
-	if cookie, err := req.Cookie(key); err == nil {
-		if cookie != nil && cookie.Value != "" {
-			paddingValue := cookie.Value
-			paddingPlacement := option.PlacementCookie + ", key=" + key
-			return paddingValue, paddingPlacement
+	placement := options.XPaddingPlacement
+
+	if v, p := extractFromPlacement(req, placement, key, header); v != "" {
+		return v, p
+	}
+
+	// Fallback: probe the other placements in case a peer using a different
+	// configuration (e.g. an older client) is talking to this server. This
+	// preserves interoperability without weakening the configured path.
+	fallbacks := []string{
+		option.PlacementHeader,
+		option.PlacementQueryInHeader,
+		option.PlacementCookie,
+		option.PlacementQuery,
+	}
+	for _, fp := range fallbacks {
+		if fp == placement {
+			continue
+		}
+		if v, p := extractFromPlacement(req, fp, key, header); v != "" {
+			return v, p
 		}
 	}
-	headerValue := req.Header.Get(header)
-	if headerValue != "" {
-		if options.XPaddingPlacement == option.PlacementHeader {
-			paddingPlacement := option.PlacementHeader + "=" + header
-			return headerValue, paddingPlacement
-		}
 
-		if parsedURL, err := url.Parse(headerValue); err == nil {
-			paddingPlacement := option.PlacementQueryInHeader + "=" + header + ", key=" + key
-
-			return parsedURL.Query().Get(key), paddingPlacement
+	// Final fallback: legacy Referer + x_padding (used by the non-obfs client
+	// path and historical sing-box releases).
+	if referrer := req.Header.Get("Referer"); referrer != "" {
+		if referrerURL, err := url.Parse(referrer); err == nil {
+			if v := referrerURL.Query().Get("x_padding"); v != "" {
+				return v, option.PlacementQueryInHeader + "=Referer, key=x_padding"
+			}
 		}
 	}
-	queryValue := req.URL.Query().Get(key)
-	if queryValue != "" {
-		paddingPlacement := option.PlacementQuery + ", key=" + key
-		return queryValue, paddingPlacement
+	if req.URL != nil {
+		if v := req.URL.Query().Get("x_padding"); v != "" {
+			return v, option.PlacementQuery + ", key=x_padding"
+		}
 	}
 	return "", ""
 }
