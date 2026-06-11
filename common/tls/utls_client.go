@@ -288,9 +288,9 @@ func init() {
 	modernFingerprints := []utls.ClientHelloID{
 		utls.HelloChrome_Auto,
 		utls.HelloFirefox_Auto,
-		utls.HelloEdge_Auto,
 		utls.HelloSafari_Auto,
-		utls.HelloIOS_Auto,
+		utls.HelloAndroid_OkHttp_Auto,
+		utls.HelloChrome_141_TA,
 	}
 	randomFingerprint = modernFingerprints[rand.Intn(len(modernFingerprints))]
 
@@ -308,6 +308,10 @@ func uTLSClientHelloID(name string) (utls.ClientHelloID, error) {
 		fallthrough
 	case "chrome", "":
 		return utls.HelloChrome_Auto, nil
+	case "chrome_ta":
+		return utls.HelloChrome_141_TA, nil
+	case "chrome_ta_pqs":
+		return utls.HelloChrome_144_TA_PQS, nil
 	case "firefox":
 		return utls.HelloFirefox_Auto, nil
 	case "edge":
@@ -321,7 +325,7 @@ func uTLSClientHelloID(name string) (utls.ClientHelloID, error) {
 	case "ios":
 		return utls.HelloIOS_Auto, nil
 	case "android":
-		return utls.HelloAndroid_11_OkHttp, nil
+		return utls.HelloAndroid_OkHttp_Auto, nil
 	case "random":
 		return randomFingerprint, nil
 	case "randomized":

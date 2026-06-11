@@ -236,3 +236,5 @@ replace github.com/Diniboy1123/connect-ip-go => github.com/shtorm-7/connect-ip-g
 replace github.com/shtorm-7/go-cache/v2 => github.com/shtorm-7/go-cache/v2 v2.1.0-extended-1.1.0
 
 replace github.com/sagernet/sing => github.com/shtorm-7/sing v0.8.10-extended-1.1.0
+
+replace github.com/metacubex/utls => github.com/re7gog/utls v1.9.0-gog
