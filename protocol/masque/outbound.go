@@ -2,8 +2,6 @@ package masque
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"net"
 	"net/netip"
 	"time"
@@ -24,7 +22,6 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func RegisterOutbound(registry *outbound.Registry) {
@@ -54,36 +51,10 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 	}
 	outbound.startHandler = func() {
 		defer close(outbound.await)
-		cacheFile := service.FromContext[adapter.CacheFile](ctx)
-		var appConfig *Config
-		var err error
-		if !options.Profile.Recreate && cacheFile != nil && cacheFile.StoreMASQUEConfig() {
-			savedProfile := cacheFile.LoadMASQUEConfig(tag)
-			if savedProfile != nil {
-				if err = json.Unmarshal(savedProfile.Content, &appConfig); err != nil {
-					logger.ErrorContext(ctx, err)
-					return
-				}
-			}
-		}
-		if appConfig == nil {
-			appConfig, err = outbound.createConfig()
-			if err != nil {
-				logger.ErrorContext(ctx, err)
-				return
-			}
-			if cacheFile != nil && cacheFile.StoreMASQUEConfig() {
-				content, err := json.Marshal(appConfig)
-				if err != nil {
-					logger.ErrorContext(ctx, err)
-					return
-				}
-				cacheFile.SaveMASQUEConfig(tag, &adapter.SavedBinary{
-					LastUpdated: time.Now(),
-					Content:     content,
-					LastEtag:    "",
-				})
-			}
+		appConfig, err := outbound.provisionConfig(options.Profile.Recreate)
+		if err != nil {
+			logger.ErrorContext(ctx, err)
+			return
 		}
 		privKey, err := appConfig.GetEcPrivateKey()
 		if err != nil {
@@ -259,56 +230,4 @@ func (w *Outbound) isTunnelInitialized(ctx context.Context) error {
 		return E.New("tunnel not initialized")
 	}
 	return nil
-}
-
-func (w *Outbound) createConfig() (*Config, error) {
-	opts := make([]cloudflare.CloudflareApiOption, 0, 1)
-	if w.options.Profile.Detour != "" {
-		detour, ok := service.FromContext[adapter.OutboundManager](w.ctx).Outbound(w.options.Profile.Detour)
-		if !ok {
-			return nil, E.New("outbound detour not found: ", w.options.Profile.Detour)
-		}
-		opts = append(opts, cloudflare.WithDialContext(func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return detour.DialContext(ctx, network, M.ParseSocksaddr(addr))
-		}))
-	}
-	api := cloudflare.NewCloudflareApi(opts...)
-	var profile *cloudflare.CloudflareProfile
-	var err error
-	if w.options.Profile.AuthToken != "" && w.options.Profile.ID != "" {
-		profile, err = api.GetProfile(w.ctx, w.options.Profile.AuthToken, w.options.Profile.ID)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		wgPrivateKey, err := wgtypes.GeneratePrivateKey()
-		if err != nil {
-			return nil, err
-		}
-		profile, err = api.CreateProfile(w.ctx, wgPrivateKey.PublicKey().String())
-		if err != nil {
-			return nil, err
-		}
-	}
-	privateKey, publicKey, err := masque.GenerateEcKeyPair()
-	if err != nil {
-		return nil, E.New("failed to generate key pair: ", err)
-	}
-	updatedProfile, err := api.EnrollKey(w.ctx, profile.Token, profile.ID, cloudflare.KeyTypeMasque, cloudflare.TunTypeMasque, base64.StdEncoding.EncodeToString(publicKey))
-	if err != nil {
-		return nil, err
-	}
-	return &Config{
-		PrivateKey:     base64.StdEncoding.EncodeToString(privateKey),
-		EndpointV4:     updatedProfile.Config.Peers[0].Endpoint.V4[:len(updatedProfile.Config.Peers[0].Endpoint.V4)-2],
-		EndpointV6:     updatedProfile.Config.Peers[0].Endpoint.V6[1 : len(updatedProfile.Config.Peers[0].Endpoint.V6)-3],
-		EndpointH2V4:   cloudflare.DefaultEndpointH2V4,
-		EndpointH2V6:   cloudflare.DefaultEndpointH2V6,
-		EndpointPubKey: updatedProfile.Config.Peers[0].PublicKey,
-		License:        updatedProfile.Account.License,
-		ID:             updatedProfile.ID,
-		AccessToken:    profile.Token,
-		IPv4:           updatedProfile.Config.Interface.Addresses.V4,
-		IPv6:           updatedProfile.Config.Interface.Addresses.V6,
-	}, nil
 }
