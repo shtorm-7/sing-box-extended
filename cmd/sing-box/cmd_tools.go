@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 
-	"github.com/sagernet/sing-box"
+	box "github.com/sagernet/sing-box"
 	E "github.com/sagernet/sing/common/exceptions"
 	N "github.com/sagernet/sing/common/network"
 
@@ -23,22 +24,25 @@ func init() {
 	mainCommand.AddCommand(commandTools)
 }
 
-func createPreStartedClient() (*box.Box, error) {
+func createPreStartedClient() (*box.Box, context.CancelFunc, error) {
 	options, err := readConfigAndMerge()
 	if err != nil {
 		if !(errors.Is(err, os.ErrNotExist) && len(configDirectories) == 0 && len(configPaths) == 1) || configPaths[0] != "config.json" {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	instance, err := box.New(box.Options{Context: globalCtx, Options: options})
+	ctx, cancel := context.WithCancel(globalCtx)
+	instance, err := box.New(box.Options{Context: ctx, Options: options})
 	if err != nil {
-		return nil, E.Cause(err, "create service")
+		cancel()
+		return nil, nil, E.Cause(err, "create service")
 	}
 	err = instance.PreStart()
 	if err != nil {
-		return nil, E.Cause(err, "start service")
+		cancel()
+		return nil, nil, E.Cause(err, "start service")
 	}
-	return instance, nil
+	return instance, cancel, nil
 }
 
 func createDialer(instance *box.Box, outboundTag string) (N.Dialer, error) {

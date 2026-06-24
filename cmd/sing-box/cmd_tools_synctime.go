@@ -39,15 +39,18 @@ func init() {
 }
 
 func syncTime() error {
-	instance, err := createPreStartedClient()
+	instance, cancel, err := createPreStartedClient()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		cancel()
+		instance.Close()
+	}()
 	dialer, err := createDialer(instance, commandToolsFlagOutbound)
 	if err != nil {
 		return err
 	}
-	defer instance.Close()
 	serverAddress := M.ParseSocksaddr(commandSyncTimeFlagServer)
 	if serverAddress.Port == 0 {
 		serverAddress.Port = 123

@@ -40,11 +40,14 @@ func connect(address string) error {
 	default:
 		return E.Cause(N.ErrUnknownNetwork, commandConnectFlagNetwork)
 	}
-	instance, err := createPreStartedClient()
+	instance, cancel, err := createPreStartedClient()
 	if err != nil {
 		return err
 	}
-	defer instance.Close()
+	defer func() {
+		cancel()
+		instance.Close()
+	}()
 	dialer, err := createDialer(instance, commandToolsFlagOutbound)
 	if err != nil {
 		return err

@@ -40,11 +40,14 @@ var (
 )
 
 func fetch(args []string) error {
-	instance, err := createPreStartedClient()
+	instance, cancel, err := createPreStartedClient()
 	if err != nil {
 		return err
 	}
-	defer instance.Close()
+	defer func() {
+		cancel()
+		instance.Close()
+	}()
 	httpClient = &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
