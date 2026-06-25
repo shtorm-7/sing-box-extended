@@ -50,7 +50,7 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
 	}
 	endpoint.startHandler = func() {
 		defer close(endpoint.await)
-		config, err := endpoint.provisionConfig(options.Profile.Recreate)
+		config, err := endpoint.provisionConfig(options.Profile.Recreate, nil)
 		if err != nil {
 			logger.ErrorContext(ctx, err)
 			return

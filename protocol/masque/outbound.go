@@ -51,7 +51,7 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 	}
 	outbound.startHandler = func() {
 		defer close(outbound.await)
-		appConfig, err := outbound.provisionConfig(options.Profile.Recreate)
+		appConfig, err := outbound.provisionConfig(options.Profile.Recreate, nil)
 		if err != nil {
 			logger.ErrorContext(ctx, err)
 			return

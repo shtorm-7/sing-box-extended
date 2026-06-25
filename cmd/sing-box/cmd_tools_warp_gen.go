@@ -5,6 +5,7 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	E "github.com/sagernet/sing/common/exceptions"
+	N "github.com/sagernet/sing/common/network"
 
 	"github.com/spf13/cobra"
 )
@@ -27,7 +28,6 @@ func init() {
 	commandToolsWarp.AddCommand(commandToolsWarpGen)
 }
 
-// TODO: fix ignoring -o flag
 func warpGen(tags []string, force bool) error {
 	options, err := readConfigAndMerge()
 	if err != nil {
@@ -50,6 +50,16 @@ func warpGen(tags []string, force bool) error {
 		instance.Close()
 	}()
 
+	// With -o the registration request is routed through that outbound; otherwise
+	// the configured profile detour (if any) is used.
+	var dialer N.Dialer
+	if commandToolsFlagOutbound != "" {
+		dialer, err = createDialer(instance, commandToolsFlagOutbound)
+		if err != nil {
+			return err
+		}
+	}
+
 	// GenerateConfig keeps an already-stored profile unless force is set, matching
 	// the behavior of a normal start.
 	for tag, typ := range entries {
@@ -57,7 +67,7 @@ func warpGen(tags []string, force bool) error {
 		if !ok {
 			return E.New("no generator for tag: ", tag)
 		}
-		if err := generator.GenerateConfig(force); err != nil {
+		if err := generator.GenerateConfig(force, dialer); err != nil {
 			return E.Cause(err, "generate ", tag)
 		}
 	}
@@ -65,7 +75,7 @@ func warpGen(tags []string, force bool) error {
 }
 
 type warpConfigGenerator interface {
-	GenerateConfig(recreate bool) error
+	GenerateConfig(recreate bool, dialer N.Dialer) error
 }
 
 func warpGeneratorByTag(instance *box.Box, tag, typ string) (warpConfigGenerator, bool) {

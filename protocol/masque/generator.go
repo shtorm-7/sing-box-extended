@@ -12,21 +12,23 @@ import (
 	"github.com/sagernet/sing-box/transport/masque"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // GenerateConfig provisions the MASQUE account into the cache: it keeps the cached
 // profile when present, or registers a new one. With recreate it always registers
-// a fresh one. It does not start the tunnel.
-func (w *Outbound) GenerateConfig(recreate bool) error {
-	_, err := w.provisionConfig(recreate)
+// a fresh one. When dialer is non-nil, the registration request goes through it
+// instead of the configured profile detour. It does not start the tunnel.
+func (w *Outbound) GenerateConfig(recreate bool, dialer N.Dialer) error {
+	_, err := w.provisionConfig(recreate, dialer)
 	return err
 }
 
 // provisionConfig returns the MASQUE config, loading it from the cache or creating
 // (and caching) a new one. With recreate it ignores the cache and creates a fresh config.
-func (w *Outbound) provisionConfig(recreate bool) (*Config, error) {
+func (w *Outbound) provisionConfig(recreate bool, dialer N.Dialer) (*Config, error) {
 	cacheFile := service.FromContext[adapter.CacheFile](w.ctx)
 	var appConfig *Config
 	var err error
@@ -39,7 +41,7 @@ func (w *Outbound) provisionConfig(recreate bool) (*Config, error) {
 		}
 	}
 	if appConfig == nil {
-		appConfig, err = w.createConfig()
+		appConfig, err = w.createConfig(dialer)
 		if err != nil {
 			return nil, err
 		}
@@ -58,9 +60,13 @@ func (w *Outbound) provisionConfig(recreate bool) (*Config, error) {
 	return appConfig, nil
 }
 
-func (w *Outbound) createConfig() (*Config, error) {
+func (w *Outbound) createConfig(dialer N.Dialer) (*Config, error) {
 	opts := make([]cloudflare.CloudflareApiOption, 0, 1)
-	if w.options.Profile.Detour != "" {
+	if dialer != nil {
+		opts = append(opts, cloudflare.WithDialContext(func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, M.ParseSocksaddr(addr))
+		}))
+	} else if w.options.Profile.Detour != "" {
 		detour, ok := service.FromContext[adapter.OutboundManager](w.ctx).Outbound(w.options.Profile.Detour)
 		if !ok {
 			return nil, E.New("outbound detour not found: ", w.options.Profile.Detour)
