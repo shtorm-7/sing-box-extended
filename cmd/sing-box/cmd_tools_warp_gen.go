@@ -40,6 +40,21 @@ func warpGen(tags []string, force bool) error {
 	if options.Experimental == nil || options.Experimental.CacheFile == nil || !options.Experimental.CacheFile.Enabled {
 		return E.New("cache_file is not enabled in configuration")
 	}
+	// Without the matching store flag the generated profile is never persisted, so
+	// generation would be a no-op.
+	cacheFile := options.Experimental.CacheFile
+	for _, typ := range entries {
+		var stored bool
+		switch typ {
+		case C.TypeWARP:
+			stored = cacheFile.StoreWARPConfig
+		case C.TypeMASQUE:
+			stored = cacheFile.StoreMASQUEConfig
+		}
+		if !stored {
+			return E.New(`generating without storing makes no sense (`, typ, `)`)
+		}
+	}
 
 	instance, cancel, err := createPreStartedClient()
 	if err != nil {
