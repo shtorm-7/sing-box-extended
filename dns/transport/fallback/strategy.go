@@ -2,6 +2,7 @@ package fallback
 
 import (
 	"context"
+	"time"
 
 	mDNS "github.com/miekg/dns"
 	"github.com/sagernet/sing-box/adapter"
@@ -10,6 +11,10 @@ import (
 )
 
 type ExchangeStrategy = func(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error)
+
+func usableResponse(response *mDNS.Msg) bool {
+	return response != nil && response.Rcode != mDNS.RcodeServerFailure && response.Rcode != mDNS.RcodeRefused
+}
 
 func parallelStrategy(servers []adapter.DNSTransport, logger logger.ContextLogger) ExchangeStrategy {
 	return func(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
@@ -33,8 +38,11 @@ func parallelStrategy(servers []adapter.DNSTransport, logger logger.ContextLogge
 		for range servers {
 			select {
 			case result := <-results:
-				if result.err != nil {
+				if result.err != nil || !usableResponse(result.response) {
 					lastErr = result.err
+					if lastErr == nil {
+						lastErr = E.New("unusable DNS response")
+					}
 					continue
 				}
 				return result.response, nil
@@ -49,10 +57,24 @@ func parallelStrategy(servers []adapter.DNSTransport, logger logger.ContextLogge
 func sequentialStrategy(servers []adapter.DNSTransport, logger logger.ContextLogger) ExchangeStrategy {
 	return func(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
 		var lastErr error
-		for _, server := range servers {
-			response, err := server.Exchange(ctx, message)
+		for index, server := range servers {
+			serverCtx := ctx
+			cancel := func() {}
+			if deadline, loaded := ctx.Deadline(); loaded {
+				remaining := len(servers) - index
+				budget := time.Until(deadline) / time.Duration(remaining)
+				if budget > 0 {
+					serverCtx, cancel = context.WithTimeout(ctx, budget)
+				}
+			}
+			response, err := server.Exchange(serverCtx, message)
+			cancel()
 			if err != nil {
 				lastErr = err
+				continue
+			}
+			if !usableResponse(response) {
+				lastErr = E.New("unusable DNS response")
 				continue
 			}
 			return response, nil
