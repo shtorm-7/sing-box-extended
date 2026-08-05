@@ -45,11 +45,12 @@ type URLTest struct {
 	idleTimeout                  time.Duration
 	group                        *URLTestGroup
 	interruptExternalConnections bool
+	penalties                    map[string]uint16
 
-	provider       adapter.ProviderManager
-	providers      map[string]adapter.Provider
-	outboundsCache map[string][]adapter.Outbound
-	cancel         context.CancelFunc
+	provider        adapter.ProviderManager
+	providers       map[string]adapter.Provider
+	outboundsCache  map[string][]adapter.Outbound
+	cancel          context.CancelFunc
 
 	providerTags    []string
 	exclude         *regexp.Regexp
@@ -70,9 +71,10 @@ func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLo
 		tolerance:                    options.Tolerance,
 		idleTimeout:                  time.Duration(options.IdleTimeout),
 		interruptExternalConnections: options.InterruptExistConnections,
+		penalties:                    options.Penalties,
 
-		provider:       service.FromContext[adapter.ProviderManager](ctx),
-		providers:      make(map[string]adapter.Provider),
+		provider:        service.FromContext[adapter.ProviderManager](ctx),
+		providers:       make(map[string]adapter.Provider),
 		outboundsCache: make(map[string][]adapter.Outbound),
 
 		providerTags:    options.Providers,
@@ -119,7 +121,7 @@ func (s *URLTest) Start() error {
 		s.tags = append(s.tags, detour.Tag())
 		outbounds = append(outbounds, detour)
 	}
-	group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections)
+	group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections, s.penalties)
 	if err != nil {
 		return err
 	}
@@ -309,9 +311,10 @@ type URLTestGroup struct {
 	close                        chan struct{}
 	started                      bool
 	lastActive                   common.TypedValue[time.Time]
+	penalties                    map[string]uint16
 }
 
-func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool) (*URLTestGroup, error) {
+func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool, penalties map[string]uint16) (*URLTestGroup, error) {
 	if interval == 0 {
 		interval = C.DefaultURLTestInterval
 	}
@@ -346,6 +349,7 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 		pause:                        service.FromContext[pause.Manager](ctx),
 		interruptGroup:               interrupt.NewGroup(),
 		interruptExternalConnections: interruptExternalConnections,
+		penalties:                    penalties,
 	}, nil
 }
 
@@ -395,14 +399,14 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 		if g.selectedOutboundTCP != nil {
 			if history := g.history.LoadURLTestHistory(RealTag(g.selectedOutboundTCP)); history != nil {
 				minOutbound = g.selectedOutboundTCP
-				minDelay = history.Delay
+				minDelay = g.effectiveDelay(g.selectedOutboundTCP, history.Delay)
 			}
 		}
 	case N.NetworkUDP:
 		if g.selectedOutboundUDP != nil {
 			if history := g.history.LoadURLTestHistory(RealTag(g.selectedOutboundUDP)); history != nil {
 				minOutbound = g.selectedOutboundUDP
-				minDelay = history.Delay
+				minDelay = g.effectiveDelay(g.selectedOutboundUDP, history.Delay)
 			}
 		}
 	}
@@ -414,8 +418,11 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 		if history == nil {
 			continue
 		}
-		if minDelay == 0 || minDelay > history.Delay+g.tolerance {
-			minDelay = history.Delay
+
+		effDelay := g.effectiveDelay(detour, history.Delay)
+
+		if minDelay == 0 || minDelay > effDelay+g.tolerance {
+			minDelay = effDelay
 			minOutbound = detour
 		}
 	}
@@ -535,4 +542,15 @@ func (g *URLTestGroup) performUpdateCheck() {
 	if updated {
 		g.interruptGroup.Interrupt(g.interruptExternalConnections)
 	}
+}
+
+func (g *URLTestGroup) effectiveDelay(detour adapter.Outbound, delay uint16) uint16 {
+	if penalty, ok := g.penalties[detour.Tag()]; ok {
+		total := uint32(delay) + uint32(penalty)
+		if total > 65535 {
+			return 65535
+		}
+		return uint16(total)
+	}
+	return delay
 }

@@ -15,6 +15,7 @@ type URLTestOutboundOptions struct {
 	Tolerance                 uint16             `json:"tolerance,omitempty"`
 	IdleTimeout               badoption.Duration `json:"idle_timeout,omitempty"`
 	InterruptExistConnections bool               `json:"interrupt_exist_connections,omitempty"`
+        Penalties                 map[string]uint16  `json:"penalties,omitempty"`
 }
 
 type FallbackOutboundOptions struct {
