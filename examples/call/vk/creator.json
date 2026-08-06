@@ -1,0 +1,33 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "default" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "call",
+      "tag": "call-in",
+      "platform": "vk",
+      "read_buffer": 32768,
+      "cookies": [
+        { "name": "remixsid", "value": "" },
+        { "name": "remixnsid", "value": "" },
+        { "name": "p", "value": "" }
+      ],
+      // empty = create new call
+      "join_link": ""
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

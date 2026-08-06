@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/sagernet/quic-go"
 	"github.com/sagernet/sing-box/adapter"
@@ -117,6 +118,12 @@ func (t *Transport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg,
 				rawConn.Close()
 				return nil, E.Cause(err, "establish QUIC connection")
 			}
+			// quic-go does not take ownership of the packet conn passed to
+			// DialEarly: when the connection ends it only stops reading.
+			go func() {
+				<-earlyConnection.Context().Done()
+				rawConn.Close()
+			}()
 			return earlyConnection, nil
 		})
 		if err != nil {
@@ -144,6 +151,11 @@ func (t *Transport) exchange(ctx context.Context, message *mDNS.Msg, conn *quic.
 		return nil, E.Cause(err, "open stream")
 	}
 	defer stream.CancelRead(0)
+	stopWatch := context.AfterFunc(ctx, func() {
+		stream.CancelRead(0)
+		_ = stream.SetWriteDeadline(time.Now())
+	})
+	defer stopWatch()
 	err = transport.WriteMessage(stream, 0, message)
 	if err != nil {
 		stream.Close()

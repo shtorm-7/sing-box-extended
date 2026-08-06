@@ -19,6 +19,7 @@ Sing-box with extended features.
 - **Sudoku** — Traffic obfuscation protocol based on 4×4 Sudoku puzzles with low-entropy fingerprints
 - **Snell** — Lightweight encrypted proxy (v1–v5) with TLS / HTTP obfuscation
 - **SSH** — SSH client and server with certificate authentication and upstream fallback
+- **Call** — Traffic tunneling through video-call platforms (VK, Dion, Telemost, WBStream)
 - **VPN** — Routed tunnel over any sing-box protocol
 - **Bond** — Link aggregation for increasing throughput
 - **Fallback** — Outbound group with priority-based switching
@@ -35,12 +36,13 @@ Sing-box with extended features.
 - **Rate Limiter** — Request rate limiting
 
 ### Encryption & Obfuscation
-- **Amnezia 2.0** — WireGuard traffic obfuscation
+- **Amnezia 3.0** — WireGuard traffic obfuscation
 - **VLESS encryption** — XRAY encryption for VLESS protocol
 
 ### Transports
 - **mKCP** — Reliable UDP-based transport
 - **XHTTP** — Modern XRAY transport
+- **rmux** — Improved smux multiplex protocol
 
 ### Services
 - **Admin Panel** — Web-based management interface

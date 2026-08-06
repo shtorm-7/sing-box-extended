@@ -1,0 +1,34 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "default" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "call",
+      "tag": "call-in",
+      "platform": "dion",
+      "read_buffer": 32768,
+      "cookies": [
+        { "name": "vc-refresh-token", "value": "" }
+      ],
+      // optional: re-login if refresh cookie fails
+      "email": "",
+      "password": "",
+      // empty = create new call
+      "join_link": ""
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

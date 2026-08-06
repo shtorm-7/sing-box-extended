@@ -1,0 +1,41 @@
+{
+  "log": {
+    "level": "error"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "default"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-in",
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "users": [
+        {
+          "name": "user",
+          "uuid": "9b65b7e1-04c8-4717-8f45-2aa61fd25937"
+        }
+      ],
+      "multiplex": {
+        "enabled": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

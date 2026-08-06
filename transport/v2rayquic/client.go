@@ -78,6 +78,12 @@ func (c *Client) offerNew() (*quic.Conn, error) {
 		packetConn.Close()
 		return nil, err
 	}
+	// quic-go does not take ownership of the packet conn passed to Dial:
+	// when the connection ends it only stops reading.
+	go func() {
+		<-quicConn.Context().Done()
+		packetConn.Close()
+	}()
 	c.conn.Store(quicConn)
 	c.rawConn = udpConn
 	return quicConn, nil

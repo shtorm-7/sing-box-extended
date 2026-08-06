@@ -87,22 +87,27 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	request.Header.Set("Upgrade", "websocket")
 	err = request.Write(conn)
 	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 	bufReader := std_bufio.NewReader(conn)
 	response, err := http.ReadResponse(bufReader, request)
 	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 	if response.StatusCode != 101 ||
 		!strings.EqualFold(response.Header.Get("Connection"), "upgrade") ||
 		!strings.EqualFold(response.Header.Get("Upgrade"), "websocket") {
+		conn.Close()
+		response.Body.Close()
 		return nil, E.New("v2ray-http-upgrade: unexpected status: ", response.Status)
 	}
 	if bufReader.Buffered() > 0 {
 		buffer := buf.NewSize(bufReader.Buffered())
 		_, err = buffer.ReadFullFrom(bufReader, buffer.Len())
 		if err != nil {
+			conn.Close()
 			return nil, err
 		}
 		conn = bufio.NewCachedConn(conn, buffer)

@@ -25,6 +25,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -64,6 +65,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_profiler
@@ -124,6 +126,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -158,6 +161,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -192,6 +196,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -226,6 +231,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -260,6 +266,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -310,6 +317,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_manager
@@ -368,6 +376,7 @@ builds:
       - with_mtproxy
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_profiler
@@ -441,6 +450,7 @@ builds:
       - with_ocm
       - with_openvpn
       - with_trusttunnel
+      - with_call
       - with_sudoku
       - with_snell
       - with_profiler

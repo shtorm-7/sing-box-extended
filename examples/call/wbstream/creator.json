@@ -1,0 +1,37 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "default" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "call",
+      "tag": "call-in",
+      "platform": "wbstream",
+      // dc = fast data channel, video = slow VP8-smuggled (default)
+      "mode": "dc",
+      "read_buffer": 32768,
+      "cookies": [
+        { "name": "__wb_device_id", "value": "" },
+        { "name": "wbx-refresh", "value": "" },
+        { "name": "x_wbaas_token", "value": "" },
+        { "name": "_wbauid", "value": "" },
+        { "name": "wbx-validation-key", "value": "" }
+      ],
+      // empty = create new call
+      "join_link": ""
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

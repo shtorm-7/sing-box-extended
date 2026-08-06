@@ -2,6 +2,7 @@ package v2rayquic
 
 import (
 	"net"
+	"time"
 
 	"github.com/sagernet/quic-go"
 	qtls "github.com/sagernet/sing-quic"
@@ -37,5 +38,8 @@ func (s *StreamWrapper) Upstream() any {
 func (s *StreamWrapper) Close() error {
 	s.CancelRead(0)
 	s.Stream.Close()
+	// quic-go's Stream.Close does not unblock a Write blocked on flow control,
+	// but a past write deadline does; buffered data and the FIN are unaffected.
+	s.Stream.SetWriteDeadline(time.Now())
 	return nil
 }

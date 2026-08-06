@@ -1,0 +1,319 @@
+package tunnel
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
+	"github.com/sagernet/sing-box/transport/call/common"
+	"github.com/sagernet/sing/common/logger"
+)
+
+const (
+	defaultVP8FPS    = 24
+	defaultVP8Batch  = 30
+	keepaliveIdleMin = 60 * time.Millisecond
+	keepaliveIdleMax = 200 * time.Millisecond
+	keepalivePadMax  = 176
+	sendQueueDepth   = 128
+
+	paceBatchFloorPercent = 80
+	paceDriftMin          = 5 * time.Second
+	paceDriftMax          = 20 * time.Second
+)
+
+type VP8DataTunnel struct {
+	track     *webrtc.TrackLocalStaticSample
+	logger    logger.ContextLogger
+	obf       *TunnelObfuscator
+	stopCh    chan struct{}
+	sendQueue chan []byte
+	cfgChan   chan struct{}
+
+	stopOnce sync.Once
+	running  atomic.Bool
+
+	cfgMu           sync.Mutex
+	fps             int
+	batch           int
+	keepaliveMin    time.Duration
+	keepaliveMax    time.Duration
+	keepalivePadMax int
+
+	sentFrames      atomic.Uint64
+	recvFrames      atomic.Uint64
+	keepaliveFrames atomic.Uint64
+
+	OnData        func([]byte)
+	OnClose       func()
+	OnPeerRestart func()
+}
+
+func (t *VP8DataTunnel) SetOnData(fn func([]byte))  { t.OnData = fn }
+func (t *VP8DataTunnel) SetOnClose(fn func())       { t.OnClose = fn }
+func (t *VP8DataTunnel) SetOnPeerRestart(fn func()) { t.OnPeerRestart = fn }
+
+func NewVP8DataTunnel(track *webrtc.TrackLocalStaticSample, obf *TunnelObfuscator, logger logger.ContextLogger) *VP8DataTunnel {
+	return NewVP8DataTunnelWithQueue(track, obf, logger, sendQueueDepth)
+}
+
+func NewVP8DataTunnelWithQueue(track *webrtc.TrackLocalStaticSample, obf *TunnelObfuscator, logger logger.ContextLogger, queueDepth int) *VP8DataTunnel {
+	if queueDepth < sendQueueDepth {
+		queueDepth = sendQueueDepth
+	}
+	return &VP8DataTunnel{
+		track:           track,
+		obf:             obf,
+		logger:          logger,
+		stopCh:          make(chan struct{}),
+		sendQueue:       make(chan []byte, queueDepth),
+		cfgChan:         make(chan struct{}, 1),
+		fps:             defaultVP8FPS,
+		batch:           defaultVP8Batch,
+		keepaliveMin:    keepaliveIdleMin,
+		keepaliveMax:    keepaliveIdleMax,
+		keepalivePadMax: keepalivePadMax,
+	}
+}
+
+func (t *VP8DataTunnel) SetKeepaliveShape(minPeriod, maxPeriod time.Duration, padMax int) {
+	t.cfgMu.Lock()
+	if minPeriod > 0 {
+		t.keepaliveMin = minPeriod
+	}
+	if maxPeriod >= t.keepaliveMin {
+		t.keepaliveMax = maxPeriod
+	}
+	if padMax >= 0 {
+		t.keepalivePadMax = padMax
+	}
+	newMin, newMax, newPad := t.keepaliveMin, t.keepaliveMax, t.keepalivePadMax
+	t.cfgMu.Unlock()
+	t.logger.Debug(fmt.Sprintf("vp8tunnel: keepalive shape min=%s max=%s padMax=%d", newMin, newMax, newPad))
+}
+
+func (t *VP8DataTunnel) nextKeepalive(sampleInterval time.Duration) (ticks, padLen int) {
+	t.cfgMu.Lock()
+	minPeriod, maxPeriod, padMax := t.keepaliveMin, t.keepaliveMax, t.keepalivePadMax
+	t.cfgMu.Unlock()
+	ticks = int(common.DurationInRange(minPeriod, maxPeriod) / sampleInterval)
+	if ticks < 1 {
+		ticks = 1
+	}
+	return ticks, common.IntInRange(0, padMax)
+}
+
+func (t *VP8DataTunnel) Reconfigure(fps, batch int) {
+	if fps <= 0 && batch <= 0 {
+		return
+	}
+	t.cfgMu.Lock()
+	changed := false
+	if fps > 0 && t.fps != fps {
+		t.fps = fps
+		changed = true
+	}
+	if batch > 0 && t.batch != batch {
+		t.batch = batch
+		changed = true
+	}
+	newFPS, newBatch := t.fps, t.batch
+	t.cfgMu.Unlock()
+	if !changed {
+		return
+	}
+	t.logger.Debug(fmt.Sprintf("vp8tunnel: reconfigure fps=%d batch=%d", newFPS, newBatch))
+	select {
+	case t.cfgChan <- struct{}{}:
+	default:
+	}
+}
+
+func (t *VP8DataTunnel) FPS() int {
+	t.cfgMu.Lock()
+	defer t.cfgMu.Unlock()
+	return t.fps
+}
+
+func (t *VP8DataTunnel) Batch() int {
+	t.cfgMu.Lock()
+	defer t.cfgMu.Unlock()
+	return t.batch
+}
+
+func (t *VP8DataTunnel) SendData(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	select {
+	case t.sendQueue <- data:
+	case <-t.stopCh:
+	}
+}
+
+func (t *VP8DataTunnel) TrySendData(data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	select {
+	case t.sendQueue <- data:
+		return true
+	case <-t.stopCh:
+		return false
+	default:
+		return false
+	}
+}
+
+func (t *VP8DataTunnel) Start(fps, batch int) {
+	t.cfgMu.Lock()
+	if fps > 0 {
+		t.fps = fps
+	}
+	if batch > 0 {
+		t.batch = batch
+	}
+	t.cfgMu.Unlock()
+	if !t.running.CompareAndSwap(false, true) {
+		return
+	}
+	go t.writerLoop()
+}
+
+func (t *VP8DataTunnel) Stop() {
+	if !t.running.CompareAndSwap(true, false) {
+		return
+	}
+	t.stopOnce.Do(func() { close(t.stopCh) })
+	if t.OnClose != nil {
+		t.OnClose()
+	}
+}
+
+func (t *VP8DataTunnel) HandleFrame(frame []byte) {
+	res := t.obf.Decode(frame)
+	if !res.HasFrame {
+		return
+	}
+	if res.SelfEcho {
+		return
+	}
+	if res.PeerRestart {
+		t.logger.Info(fmt.Sprintf("vp8tunnel: peer restart detected, new epoch=0x%08x", res.PeerEpoch))
+		if t.OnPeerRestart != nil {
+			t.OnPeerRestart()
+		}
+	}
+	if res.Keepalive || len(res.Payload) == 0 {
+		return
+	}
+	n := t.recvFrames.Add(1)
+	if n <= 5 || n%500 == 0 {
+		t.logger.Debug(fmt.Sprintf("vp8tunnel: recv frame #%d size=%d", n, len(res.Payload)))
+	}
+	if t.OnData != nil {
+		t.OnData(res.Payload)
+	}
+}
+
+func (t *VP8DataTunnel) currentRate() (fps, batch int) {
+	t.cfgMu.Lock()
+	defer t.cfgMu.Unlock()
+	return t.fps, t.batch
+}
+
+func sampleIntervalFor(fps, batch int) time.Duration {
+	if fps < 1 {
+		fps = 1
+	}
+	frameInterval := time.Second / time.Duration(fps)
+	interval := frameInterval
+	if batch > 1 {
+		interval = frameInterval / time.Duration(batch)
+	}
+	if interval <= 0 {
+		interval = time.Millisecond
+	}
+	return interval
+}
+
+func pacedBatchFor(batch int) int {
+	if batch <= 1 {
+		return batch
+	}
+	floor := batch * paceBatchFloorPercent / 100
+	if floor < 1 {
+		floor = 1
+	}
+	return common.IntInRange(floor, batch)
+}
+
+func (t *VP8DataTunnel) writerLoop() {
+	for {
+		fps, batch := t.currentRate()
+		pacedBatch := pacedBatchFor(batch)
+		sampleInterval := sampleIntervalFor(fps, pacedBatch)
+		keepaliveEvery, keepalivePad := t.nextKeepalive(sampleInterval)
+		t.logger.Debug(fmt.Sprintf("vp8tunnel: writer (re)started fps=%d batch=%d pacedBatch=%d sampleInterval=%s keepaliveEvery=%d",
+			fps, batch, pacedBatch, sampleInterval, keepaliveEvery))
+
+		ticker := time.NewTicker(sampleInterval)
+		drift := time.NewTimer(common.DurationInRange(paceDriftMin, paceDriftMax))
+		idleTicks := 0
+		reconfigure := false
+		for !reconfigure {
+			select {
+			case <-t.stopCh:
+				ticker.Stop()
+				drift.Stop()
+				return
+			case <-t.cfgChan:
+				reconfigure = true
+			case <-drift.C:
+				pacedBatch = pacedBatchFor(batch)
+				sampleInterval = sampleIntervalFor(fps, pacedBatch)
+				ticker.Reset(sampleInterval)
+				keepaliveEvery, keepalivePad = t.nextKeepalive(sampleInterval)
+				drift.Reset(common.DurationInRange(paceDriftMin, paceDriftMax))
+				t.logger.Debug(fmt.Sprintf("vp8tunnel: pace drift pacedBatch=%d/%d sampleInterval=%s", pacedBatch, batch, sampleInterval))
+			case <-ticker.C:
+				var sample []byte
+				isKeepalive := false
+				select {
+				case data := <-t.sendQueue:
+					sample = t.obf.EncodeData(data)
+					idleTicks = 0
+				default:
+					idleTicks++
+					if idleTicks < keepaliveEvery {
+						continue
+					}
+					idleTicks = 0
+					sample = t.obf.EncodeKeepalive(keepalivePad)
+					keepaliveEvery, keepalivePad = t.nextKeepalive(sampleInterval)
+					isKeepalive = true
+				}
+				if sample == nil {
+					continue
+				}
+				if err := t.track.WriteSample(media.Sample{Data: sample, Duration: sampleInterval}); err != nil {
+					t.logger.Debug(fmt.Sprintf("vp8tunnel: WriteSample error: %v", err))
+					continue
+				}
+				n := t.sentFrames.Add(1)
+				if isKeepalive {
+					t.keepaliveFrames.Add(1)
+				}
+				if n <= 5 || n%500 == 0 {
+					keepalives := t.keepaliveFrames.Load()
+					t.logger.Debug(fmt.Sprintf("vp8tunnel: sent frame #%d size=%d data=%d keepalive=%d", n, len(sample), n-keepalives, keepalives))
+				}
+			}
+		}
+		ticker.Stop()
+		drift.Stop()
+	}
+}

@@ -1,0 +1,44 @@
+{
+  "log": {
+    "level": "error"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "default"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen_port": 7897
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "vless",
+      "tag": "vless-out",
+      "server": "example.com",
+      "server_port": 443,
+      "uuid": "9b65b7e1-04c8-4717-8f45-2aa61fd25937",
+      "multiplex": {
+        "enabled": true,
+        "protocol": "rmux",
+        "max_connections": 4,
+        "min_streams": 4
+      }
+    }
+  ],
+  "route": {
+    "final": "vless-out",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

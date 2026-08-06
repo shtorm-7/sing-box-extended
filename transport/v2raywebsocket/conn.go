@@ -187,6 +187,7 @@ func (c *EarlyWebsocketConn) writeRequest(content []byte) error {
 	if len(lateData) > 0 {
 		_, err = conn.Write(lateData)
 		if err != nil {
+			conn.Close()
 			return err
 		}
 	}

@@ -52,6 +52,7 @@ Multiplex protocol.
 | smux     | https://github.com/xtaci/smux      |
 | yamux    | https://github.com/hashicorp/yamux |
 | h2mux    | https://golang.org/x/net/http2     |
+| rmux     | https://github.com/shtorm-7/rmux   |
 
 h2mux is used by default.
 

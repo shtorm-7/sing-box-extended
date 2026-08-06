@@ -1,0 +1,32 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "default" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "call",
+      "tag": "call-in",
+      "platform": "telemost",
+      "read_buffer": 32768,
+      "cookies": [
+        { "name": "Session_id", "value": "" },
+        { "name": "sessionid2", "value": "" }
+      ],
+      // empty = create new call
+      "join_link": ""
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "final": "direct",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

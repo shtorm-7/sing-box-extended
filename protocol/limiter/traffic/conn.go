@@ -20,19 +20,14 @@ func newConnWithUploadTrafficLimiter(ctx context.Context, conn net.Conn, limiter
 }
 
 func (conn *connWithTrafficLimiter) Write(p []byte) (int, error) {
-	err := conn.limiter.Can(uint64(len(p)))
-	if err != nil {
+	reserved, err := conn.limiter.Reserve(uint64(len(p)))
+	if reserved < uint64(len(p)) {
+		conn.limiter.Commit(reserved, 0)
 		return 0, err
 	}
 	n, err := conn.Conn.Write(p)
-	if err != nil {
-		return 0, err
-	}
-	err = conn.limiter.Add(uint64(n))
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
+	conn.limiter.Commit(reserved, uint64(n))
+	return n, err
 }
 
 type connWithUploadTrafficLimiter struct {
@@ -42,19 +37,16 @@ type connWithUploadTrafficLimiter struct {
 }
 
 func (conn *connWithUploadTrafficLimiter) Read(p []byte) (int, error) {
-	err := conn.limiter.Can(1)
-	if err != nil {
+	reserved, err := conn.limiter.Reserve(uint64(len(p)))
+	if reserved == 0 {
 		return 0, err
+	}
+	if reserved < uint64(len(p)) {
+		p = p[:reserved]
 	}
 	n, err := conn.Conn.Read(p)
-	if err != nil {
-		return 0, err
-	}
-	err = conn.limiter.Add(uint64(n))
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
+	conn.limiter.Commit(reserved, uint64(n))
+	return n, err
 }
 
 type packetConnWithTrafficLimiter struct {
@@ -72,19 +64,14 @@ func newPacketConnWithUploadTrafficLimiter(ctx context.Context, conn net.PacketC
 }
 
 func (conn *packetConnWithTrafficLimiter) WriteTo(p []byte, addr net.Addr) (int, error) {
-	err := conn.limiter.Can(uint64(len(p)))
-	if err != nil {
+	reserved, err := conn.limiter.Reserve(uint64(len(p)))
+	if reserved < uint64(len(p)) {
+		conn.limiter.Commit(reserved, 0)
 		return 0, err
 	}
 	n, err := conn.PacketConn.WriteTo(p, addr)
-	if err != nil {
-		return 0, err
-	}
-	err = conn.limiter.Add(uint64(n))
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
+	conn.limiter.Commit(reserved, uint64(n))
+	return n, err
 }
 
 type packetConnWithUploadTrafficLimiter struct {
@@ -94,19 +81,16 @@ type packetConnWithUploadTrafficLimiter struct {
 }
 
 func (conn *packetConnWithUploadTrafficLimiter) ReadFrom(p []byte) (int, net.Addr, error) {
-	err := conn.limiter.Can(1)
-	if err != nil {
+	reserved, err := conn.limiter.Reserve(uint64(len(p)))
+	if reserved == 0 {
 		return 0, nil, err
+	}
+	if reserved < uint64(len(p)) {
+		p = p[:reserved]
 	}
 	n, addr, err := conn.PacketConn.ReadFrom(p)
-	if err != nil {
-		return n, nil, err
-	}
-	err = conn.limiter.Add(uint64(n))
-	if err != nil {
-		return 0, nil, err
-	}
-	return n, addr, nil
+	conn.limiter.Commit(reserved, uint64(n))
+	return n, addr, err
 }
 
 func connWithDownloadTrafficWrapper(ctx context.Context, conn net.Conn, limiter TrafficLimiter, reverse bool) net.Conn {

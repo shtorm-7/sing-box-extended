@@ -126,6 +126,12 @@ func (t *HTTP3Transport) newTransport() *http3.Transport {
 				conn.Close()
 				return nil, dialErr
 			}
+			// quic-go does not take ownership of the packet conn passed to
+			// DialEarly: when the connection ends it only stops reading.
+			go func() {
+				<-quicConn.Context().Done()
+				conn.Close()
+			}()
 			return quicConn, nil
 		},
 		TLSClientConfig: t.tlsConfig,

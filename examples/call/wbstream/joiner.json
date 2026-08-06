@@ -1,0 +1,33 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      { "type": "local", "tag": "default" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "listen": "127.0.0.1",
+      "listen_port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "call",
+      "tag": "call-out",
+      "platform": "wbstream",
+      // dc = fast data channel, video = slow VP8-smuggled (default)
+      "mode": "dc",
+      "read_buffer": 32768,
+      "join_link": ""
+    }
+  ],
+  "route": {
+    "final": "call-out",
+    "default_domain_resolver": "default",
+    "auto_detect_interface": true
+  }
+}

@@ -1,6 +1,6 @@
 package traffic
 
 type TrafficLimiter interface {
-	Can(n uint64) error
-	Add(n uint64) error
+	Reserve(n uint64) (uint64, error)
+	Commit(reserved uint64, n uint64)
 }
