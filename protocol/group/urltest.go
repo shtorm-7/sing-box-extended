@@ -47,10 +47,10 @@ type URLTest struct {
 	interruptExternalConnections bool
 	penalties                    map[string]uint16
 
-	provider        adapter.ProviderManager
-	providers       map[string]adapter.Provider
-	outboundsCache  map[string][]adapter.Outbound
-	cancel          context.CancelFunc
+	provider       adapter.ProviderManager
+	providers      map[string]adapter.Provider
+	outboundsCache map[string][]adapter.Outbound
+	cancel         context.CancelFunc
 
 	providerTags    []string
 	exclude         *regexp.Regexp
@@ -73,8 +73,8 @@ func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLo
 		interruptExternalConnections: options.InterruptExistConnections,
 		penalties:                    options.Penalties,
 
-		provider:        service.FromContext[adapter.ProviderManager](ctx),
-		providers:       make(map[string]adapter.Provider),
+		provider:       service.FromContext[adapter.ProviderManager](ctx),
+		providers:      make(map[string]adapter.Provider),
 		outboundsCache: make(map[string][]adapter.Outbound),
 
 		providerTags:    options.Providers,
@@ -121,6 +121,17 @@ func (s *URLTest) Start() error {
 		s.tags = append(s.tags, detour.Tag())
 		outbounds = append(outbounds, detour)
 	}
+        if len(s.penalties) > 0 {
+               known := make(map[string]bool, len(s.tags))
+                for _, tag := range s.tags {
+                        known[tag] = true
+                }
+                for tag := range s.penalties {
+                        if !known[tag] {
+                                s.logger.Warn("penalty configured for unknown outbound: ", tag)
+                        }
+                }
+        }
 	group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections, s.penalties)
 	if err != nil {
 		return err
@@ -421,7 +432,7 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 
 		effDelay := g.effectiveDelay(detour, history.Delay)
 
-		if minDelay == 0 || minDelay > effDelay+g.tolerance {
+		if minDelay == 0 || uint32(minDelay) > uint32(effDelay)+(uint32)(g.tolerance) {
 			minDelay = effDelay
 			minOutbound = detour
 		}
