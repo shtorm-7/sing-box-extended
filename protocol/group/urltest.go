@@ -121,17 +121,17 @@ func (s *URLTest) Start() error {
 		s.tags = append(s.tags, detour.Tag())
 		outbounds = append(outbounds, detour)
 	}
-        if len(s.penalties) > 0 {
-               known := make(map[string]bool, len(s.tags))
-                for _, tag := range s.tags {
-                        known[tag] = true
-                }
-                for tag := range s.penalties {
-                        if !known[tag] {
-                                s.logger.Warn("penalty configured for unknown outbound: ", tag)
-                        }
-                }
-        }
+	if len(s.penalties) > 0 {
+		known := make(map[string]bool, len(s.tags))
+		for _, tag := range s.tags {
+			known[tag] = true
+		}
+		for tag := range s.penalties {
+			if !known[tag] {
+				s.logger.Warn("penalty configured for unknown outbound: ", tag)
+			}
+		}
+	}
 	group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections, s.penalties)
 	if err != nil {
 		return err
