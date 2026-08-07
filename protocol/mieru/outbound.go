@@ -16,6 +16,7 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/service"
 
 	mieruclient "github.com/enfein/mieru/v3/apis/client"
 	mierucommon "github.com/enfein/mieru/v3/apis/common"
@@ -27,9 +28,11 @@ import (
 
 type Outbound struct {
 	outbound.Adapter
-	dialer N.Dialer
-	logger log.ContextLogger
-	client mieruclient.Client
+	ctx     context.Context
+	options option.MieruOutboundOptions
+	dialer  N.Dialer
+	logger  log.ContextLogger
+	client  mieruclient.Client
 }
 
 func RegisterOutbound(registry *outbound.Registry) {
@@ -42,25 +45,53 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 		return nil, err
 	}
 
-	config, err := buildMieruClientConfig(options, mieruDialer{dialer: outboundDialer})
+	return &Outbound{
+		Adapter: outbound.NewAdapterWithDialerOptions(C.TypeMieru, tag, []string{N.NetworkTCP, N.NetworkUDP}, options.DialerOptions),
+		ctx:     ctx,
+		options: options,
+		dialer:  outboundDialer,
+		logger:  logger,
+	}, nil
+}
+
+// Start is called by the outbound manager lifecycle. We defer building and
+// starting the actual mieru client until StartStatePostStart, because
+// resolving a domain server name via dnsRouter requires the "direct"
+// outbound (and DNS transports) to already be registered and started —
+// which is not guaranteed yet during NewOutbound()/construction phase.
+func (o *Outbound) Start(stage adapter.StartStage) error {
+	if stage != adapter.StartStatePostStart {
+		return nil
+	}
+
+	options := o.options
+	if M.IsDomainName(options.Server) {
+		dnsRouter := service.FromContext[adapter.DNSRouter](o.ctx)
+		if dnsRouter == nil {
+			return E.New("dnsRouter is required for domain resolution")
+		}
+		addrs, err := dnsRouter.Lookup(o.ctx, options.Server, adapter.DNSQueryOptions{})
+		if err != nil || len(addrs) == 0 {
+			return E.Cause(err, "resolve mieru server domain ", options.Server)
+		}
+		options.Server = addrs[0].String()
+	}
+
+	config, err := buildMieruClientConfig(options, mieruDialer{dialer: o.dialer})
 	if err != nil {
-		return nil, fmt.Errorf("failed to build mieru client config: %w", err)
+		return fmt.Errorf("failed to build mieru client config: %w", err)
 	}
 	c := mieruclient.NewClient()
 	if err := c.Store(config); err != nil {
-		return nil, fmt.Errorf("failed to store mieru client config: %w", err)
+		return fmt.Errorf("failed to store mieru client config: %w", err)
 	}
 	if err := c.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start mieru client: %w", err)
+		return fmt.Errorf("failed to start mieru client: %w", err)
 	}
-	logger.NoticeContext(ctx, "mieru client is started")
+	o.logger.NoticeContext(o.ctx, "mieru client is started")
 
-	return &Outbound{
-		Adapter: outbound.NewAdapterWithDialerOptions(C.TypeMieru, tag, []string{N.NetworkTCP, N.NetworkUDP}, options.DialerOptions),
-		dialer:  outboundDialer,
-		logger:  logger,
-		client:  c,
-	}, nil
+	o.client = c
+	return nil
 }
 
 func (o *Outbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
