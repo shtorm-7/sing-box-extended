@@ -214,10 +214,12 @@ func (h *vlessDialer) DialContext(ctx context.Context, network string, destinati
 	}
 
 	if h.encryption != nil {
-		conn, err = h.encryption.Handshake(conn)
-		if err != nil {
-			return nil, E.Cause(err, "encryption handshake")
+		encConn, encErr := h.encryption.Handshake(conn)
+		if encErr != nil {
+			common.Close(conn)
+			return nil, E.Cause(encErr, "encryption handshake")
 		}
+		conn = encConn
 	}
 
 	var visionBaseConn net.Conn
@@ -299,11 +301,12 @@ func (h *vlessDialer) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		return nil, err
 	}
 	if h.encryption != nil {
-		conn, err = h.encryption.Handshake(conn)
-		if err != nil {
+		encConn, encErr := h.encryption.Handshake(conn)
+		if encErr != nil {
 			common.Close(conn)
-			return nil, E.Cause(err, "encryption handshake")
+			return nil, E.Cause(encErr, "encryption handshake")
 		}
+		conn = encConn
 	}
 	if h.xudp {
 		return h.client.DialEarlyXUDPPacketConn(conn, destination)

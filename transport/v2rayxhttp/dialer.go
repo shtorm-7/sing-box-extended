@@ -95,6 +95,12 @@ func (c *DefaultDialerClient) IsClosed() bool {
 	return c.closed
 }
 
+func (c *DefaultDialerClient) MarkUnusable() {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	c.closed = true
+}
+
 func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessionId string, body io.Reader, uploadOnly bool) (wrc io.ReadCloser, remoteAddr, localAddr net.Addr, err error) {
 	// this is done when the TCP/UDP connection to the server was established,
 	// and we can unblock the Dial function and print correct net addresses in
@@ -120,7 +126,7 @@ func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessio
 		resp, err = c.client.Do(req)
 		if err != nil {
 			if !uploadOnly && !errors.Is(err, context.Canceled) { // stream-down is enough
-				c.Close()
+				c.MarkUnusable()
 			}
 			cancel()
 			gotConn.Close()
@@ -152,7 +158,7 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
 	if c.httpVersion != "1.1" {
 		resp, err := c.client.Do(req)
 		if err != nil {
-			c.Close()
+			c.MarkUnusable()
 			return err
 		}
 		io.Copy(io.Discard, resp.Body)
@@ -188,7 +194,7 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
 				if h1UploadConn.UnreadedResponsesCount > 0 {
 					resp, err := http.ReadResponse(h1UploadConn.RespBufReader, req)
 					if err != nil {
-						c.Close()
+						c.MarkUnusable()
 						return fmt.Errorf("error while reading response: %s", err.Error())
 					}
 					io.Copy(io.Discard, resp.Body)

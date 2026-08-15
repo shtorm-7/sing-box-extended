@@ -50,6 +50,13 @@ func NewCommonConn(conn net.Conn, useAES bool) *CommonConn {
 	}
 }
 
+func (c *CommonConn) Close() error {
+	if c == nil || c.Conn == nil {
+		return nil
+	}
+	return c.Conn.Close()
+}
+
 func (c *CommonConn) Write(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil

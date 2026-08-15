@@ -47,6 +47,11 @@ type Client struct {
 	xmuxManager2    *XmuxManager
 }
 
+const (
+	maxPostPacketAttempts  = 3
+	postPacketRetryBackoff = 100 * time.Millisecond
+)
+
 func NewClient(ctx context.Context, logger log.ContextLogger, dialer N.Dialer, serverAddr M.Socksaddr, options option.V2RayXHTTPOptions, tlsConfig tls.Config) (adapter.V2RayClientTransport, error) {
 	if tlsConfig != nil && len(tlsConfig.NextProtos()) == 0 {
 		tlsConfig.SetNextProtos([]string{"h2"})
@@ -235,23 +240,46 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 				}
 				lastWrite = time.Now()
 				if dynamicXmuxClient != nil && (dynamicXmuxClient.LeftRequests.Add(-1) <= 0 ||
+					dynamicXmuxClient.XmuxConn.IsClosed() ||
 					(dynamicXmuxClient.UnreusableAt != time.Time{} && lastWrite.After(dynamicXmuxClient.UnreusableAt))) {
 					dynamicHTTPClient, dynamicXmuxClient = c.getHTTPClient()
 				}
-				go func(hClient DialerClient) {
-					err := hClient.PostPacket(
-						ctx,
-						requestURL.String(),
-						sessionId,
-						seqStr,
-						chunk,
-					)
+				payloadBytes := make([]byte, chunk.Len())
+				chunk.Copy(payloadBytes)
+				go func(hClient DialerClient, hXmux *XmuxClient) {
+					if hXmux != nil {
+						hXmux.AddOpenUsage(1)
+					}
+					err := hClient.PostPacket(ctx, requestURL.String(), sessionId, seqStr, chunk)
+					for attempt := 1; err != nil && attempt < maxPostPacketAttempts; attempt++ {
+						if ctx.Err() != nil {
+							break
+						}
+						if hXmux != nil {
+							hXmux.AddOpenUsage(-1)
+						}
+						hClient, hXmux = c.getHTTPClient()
+						if hXmux != nil {
+							hXmux.AddOpenUsage(1)
+						}
+						chunk = buf.MergeBytes(nil, payloadBytes)
+						timer := time.NewTimer(time.Duration(attempt) * postPacketRetryBackoff)
+						select {
+						case <-timer.C:
+						case <-ctx.Done():
+							timer.Stop()
+						}
+						err = hClient.PostPacket(ctx, requestURL.String(), sessionId, seqStr, chunk)
+					}
+					if hXmux != nil {
+						hXmux.AddOpenUsage(-1)
+					}
 					wroteRequest.Close()
 					if err != nil {
 						uploadPipeReader.Interrupt()
 						doSplit.Store(false)
 					}
-				}(dynamicHTTPClient)
+				}(dynamicHTTPClient, dynamicXmuxClient)
 				if _, ok := dynamicHTTPClient.(*DefaultDialerClient); ok {
 					<-wroteRequest.Wait()
 				}
