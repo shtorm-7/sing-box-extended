@@ -10,14 +10,15 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
-func ParseRawSubscription(ctx context.Context, content string) ([]option.Outbound, error) {
+func ParseRawSubscription(ctx context.Context, content string) ([]option.Outbound, []option.Endpoint, error) {
 	if base64Content, err := DecodeBase64URLSafe(content); err == nil {
 		servers, _ := parseRawSubscription(base64Content)
 		if len(servers) > 0 {
-			return servers, err
+			return servers, nil, err
 		}
 	}
-	return parseRawSubscription(content)
+	outbounds, err := parseRawSubscription(content)
+	return outbounds, nil, err
 }
 
 func parseRawSubscription(content string) ([]option.Outbound, error) {

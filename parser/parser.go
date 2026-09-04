@@ -11,21 +11,21 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
-var subscriptionParsers = []func(ctx context.Context, content string) ([]option.Outbound, error){
+var subscriptionParsers = []func(ctx context.Context, content string) ([]option.Outbound, []option.Endpoint, error){
 	singbox.ParseBoxSubscription,
 	clash.ParseClashSubscription,
 	sip008.ParseSIP008Subscription,
 	raw.ParseRawSubscription,
 }
 
-func ParseSubscription(ctx context.Context, content string) ([]option.Outbound, error) {
+func ParseSubscription(ctx context.Context, content string) ([]option.Outbound, []option.Endpoint, error) {
 	var pErr error
 	for _, parser := range subscriptionParsers {
-		servers, err := parser(ctx, content)
-		if len(servers) > 0 {
-			return servers, nil
+		outbounds, endpoints, err := parser(ctx, content)
+		if len(outbounds) > 0 || len(endpoints) > 0 {
+			return outbounds, endpoints, nil
 		}
 		pErr = E.Errors(pErr, err)
 	}
-	return nil, E.Cause(pErr, "no servers found")
+	return nil, nil, E.Cause(pErr, "no servers found")
 }

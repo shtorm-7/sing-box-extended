@@ -37,22 +37,27 @@ type ProviderLocal struct {
 	provider    adapter.ProviderManager
 	path        string
 	lastOutOpts []option.Outbound
+	lastEPOpts  []option.Endpoint
 	lastUpdated time.Time
 	watcher     *fswatch.Watcher
 }
 
 func NewProviderInline(ctx context.Context, router adapter.Router, logFactory log.Factory, tag string, options option.ProviderInlineOptions) (adapter.Provider, error) {
 	var (
-		outbound = service.FromContext[adapter.OutboundManager](ctx)
-		logger   = logFactory.NewLogger(F.ToString("provider/inline", "[", tag, "]"))
+		outbound    = service.FromContext[adapter.OutboundManager](ctx)
+		endpointMgr = service.FromContext[adapter.EndpointManager](ctx)
+		logger      = logFactory.NewLogger(F.ToString("provider/inline", "[", tag, "]"))
 	)
 	p := &ProviderLocal{
-		Adapter: provider.NewAdapter(ctx, router, outbound, logFactory, logger, tag, C.ProviderTypeInline, options.HealthCheck),
+		Adapter: provider.NewAdapter(ctx, router, outbound, endpointMgr, logFactory, logger, tag, C.ProviderTypeInline, options.HealthCheck),
 		ctx:     ctx,
 		logger:  logger,
 	}
 	p.SetRemoveEmojis(options.RemoveEmojis)
 	p.UpdateOutbounds(nil, options.Outbounds)
+	if len(options.Endpoints) > 0 {
+		p.UpdateEndpoints(nil, options.Endpoints)
+	}
 	return p, nil
 }
 
@@ -61,11 +66,12 @@ func NewProviderLocal(ctx context.Context, router adapter.Router, logFactory log
 		return nil, E.New("provider path is required")
 	}
 	var (
-		outbound = service.FromContext[adapter.OutboundManager](ctx)
-		logger   = logFactory.NewLogger(F.ToString("provider/local", "[", tag, "]"))
+		outbound    = service.FromContext[adapter.OutboundManager](ctx)
+		endpointMgr = service.FromContext[adapter.EndpointManager](ctx)
+		logger      = logFactory.NewLogger(F.ToString("provider/local", "[", tag, "]"))
 	)
 	provider := &ProviderLocal{
-		Adapter:  provider.NewAdapter(ctx, router, outbound, logFactory, logger, tag, C.ProviderTypeLocal, options.HealthCheck),
+		Adapter:  provider.NewAdapter(ctx, router, outbound, endpointMgr, logFactory, logger, tag, C.ProviderTypeLocal, options.HealthCheck),
 		ctx:      ctx,
 		logger:   logger,
 		provider: service.FromContext[adapter.ProviderManager](ctx),
@@ -117,12 +123,14 @@ func (s *ProviderLocal) reloadFile(path string) error {
 	if err != nil {
 		return err
 	}
-	outboundOpts, err := parser.ParseSubscription(s.ctx, string(content))
+	outboundOpts, endpointOpts, err := parser.ParseSubscription(s.ctx, string(content))
 	if err != nil {
 		return err
 	}
 	s.UpdateOutbounds(s.lastOutOpts, outboundOpts)
 	s.lastOutOpts = outboundOpts
+	s.UpdateEndpoints(s.lastEPOpts, endpointOpts)
+	s.lastEPOpts = endpointOpts
 	return nil
 }
 

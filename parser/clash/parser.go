@@ -68,6 +68,9 @@ func (c *ClashProxy) UnmarshalYAML(value *yaml.Node) error {
 	case "anytls":
 		c.SingType = C.TypeAnyTLS
 		options = &AnyTLSOption{}
+	case "wireguard":
+		c.SingType = C.TypeWireGuard
+		options = &ClashWireGuardOption{}
 	default:
 		return nil
 	}
@@ -90,17 +93,37 @@ func (c *ClashProxy) Build() option.Outbound {
 	return outbound
 }
 
-func ParseClashSubscription(_ context.Context, content string) ([]option.Outbound, error) {
+func (c *ClashProxy) BuildEndpoint() option.Endpoint {
+	endpoint := option.Endpoint{
+		Tag:  c.Name,
+		Type: c.SingType,
+	}
+	if c.Options != nil {
+		endpoint.Options = c.Options.Build()
+	}
+	return endpoint
+}
+
+func ParseClashSubscription(_ context.Context, content string) ([]option.Outbound, []option.Endpoint, error) {
 	config := &ClashConfig{}
 	err := yaml.Unmarshal([]byte(content), &config)
 	if err != nil {
-		return nil, E.Cause(err, "parse clash config")
+		return nil, nil, E.Cause(err, "parse clash config")
 	}
 	outbounds := common.FilterIsInstance(config.Proxies, func(proxy ClashProxy) (option.Outbound, bool) {
-		if proxy.SingType == "" {
+		if proxy.SingType == "" || proxy.SingType == C.TypeWireGuard {
 			return option.Outbound{}, false
 		}
 		return proxy.Build(), true
 	})
-	return outbounds, nil
+	endpoints := common.FilterIsInstance(config.Proxies, func(proxy ClashProxy) (option.Endpoint, bool) {
+		if proxy.SingType != C.TypeWireGuard {
+			return option.Endpoint{}, false
+		}
+		if wgOpt, ok := proxy.Options.(*ClashWireGuardOption); ok && wgOpt.AmneziaWGOption != nil {
+			return option.Endpoint{}, false
+		}
+		return proxy.BuildEndpoint(), true
+	})
+	return outbounds, endpoints, nil
 }

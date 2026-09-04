@@ -67,6 +67,7 @@ type ProviderRemoteOptions struct {
 
 type ProviderInlineOptions struct {
 	Outbounds    []Outbound                 `json:"outbounds,omitempty"`
+	Endpoints    []Endpoint                 `json:"endpoints,omitempty"`
 	RemoveEmojis bool                       `json:"remove_emojis,omitempty"`
 	HealthCheck  ProviderHealthCheckOptions `json:"health_check,omitempty"`
 }

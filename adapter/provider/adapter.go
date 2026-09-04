@@ -23,6 +23,7 @@ import (
 type Adapter struct {
 	ctx            context.Context
 	outbound       adapter.OutboundManager
+	endpoint       adapter.EndpointManager
 	router         adapter.Router
 	logFactory     log.Factory
 	logger         log.ContextLogger
@@ -43,7 +44,7 @@ type Adapter struct {
 	interval     time.Duration
 }
 
-func NewAdapter(ctx context.Context, router adapter.Router, outbound adapter.OutboundManager, logFactory log.Factory, logger log.ContextLogger, providerTag string, providerType string, options option.ProviderHealthCheckOptions) Adapter {
+func NewAdapter(ctx context.Context, router adapter.Router, outbound adapter.OutboundManager, endpoint adapter.EndpointManager, logFactory log.Factory, logger log.ContextLogger, providerTag string, providerType string, options option.ProviderHealthCheckOptions) Adapter {
 	timeout := time.Duration(options.Timeout)
 	if timeout == 0 {
 		timeout = 3 * time.Second
@@ -58,6 +59,7 @@ func NewAdapter(ctx context.Context, router adapter.Router, outbound adapter.Out
 	return Adapter{
 		ctx:          ctx,
 		outbound:     outbound,
+		endpoint:     endpoint,
 		router:       router,
 		logFactory:   logFactory,
 		logger:       logger,
@@ -186,10 +188,18 @@ func (a *Adapter) Close() error {
 	a.outbounds = nil
 	var err error
 	for _, ob := range outbounds {
-		if err2 := a.outbound.Remove(ob.Tag()); err2 != nil {
-			err = E.Append(err, err2, func(err error) error {
-				return E.Cause(err, "close outbound [", ob.Tag(), "]")
-			})
+		if _, isEndpoint := a.endpoint.Get(ob.Tag()); isEndpoint {
+			if err2 := a.endpoint.Remove(ob.Tag()); err2 != nil {
+				err = E.Append(err, err2, func(err error) error {
+					return E.Cause(err, "close endpoint [", ob.Tag(), "]")
+				})
+			}
+		} else {
+			if err2 := a.outbound.Remove(ob.Tag()); err2 != nil {
+				err = E.Append(err, err2, func(err error) error {
+					return E.Cause(err, "close outbound [", ob.Tag(), "]")
+				})
+			}
 		}
 	}
 	return err
@@ -249,6 +259,77 @@ func (a *Adapter) healthcheck(ctx context.Context) (map[string]uint16, error) {
 	b.Wait()
 	return result, nil
 }
+
+func (a *Adapter) UpdateEndpoints(oldOpts []option.Endpoint, newOpts []option.Endpoint) {
+	a.removeUselessEndpoints(newOpts)
+	var (
+		oldOptByTag = make(map[string]option.Endpoint)
+		endpoints   []adapter.Outbound
+	)
+	for _, opt := range oldOpts {
+		oldOptByTag[opt.Tag] = opt
+	}
+	for i, opt := range newOpts {
+		var tag string
+		if opt.Tag != "" {
+			tag = F.ToString(a.providerTag, "/", opt.Tag)
+		} else {
+			tag = F.ToString(a.providerTag, "/", i)
+		}
+		ep, exist := a.endpoint.Get(tag)
+		if !exist || !reflect.DeepEqual(opt, oldOptByTag[opt.Tag]) {
+			err := a.endpoint.Create(
+				adapter.WithContext(a.ctx, &adapter.InboundContext{
+					Outbound: tag,
+				}),
+				a.router,
+				a.logFactory.NewLogger(F.ToString("endpoint/", opt.Type, "[", tag, "]")),
+				tag,
+				opt.Type,
+				opt.Options,
+			)
+			if err != nil {
+				a.logger.Warn(err, " in ", tag, ", skip create this endpoint")
+				continue
+			}
+			ep, _ = a.endpoint.Get(tag)
+		}
+		endpoints = append(endpoints, ep)
+	}
+	a.outbounds = append(a.outbounds, endpoints...)
+	if a.outboundsByTag == nil {
+		a.outboundsByTag = make(map[string]adapter.Outbound)
+	}
+	for _, ep := range endpoints {
+		a.outboundsByTag[ep.Tag()] = ep
+	}
+}
+
+func (a *Adapter) removeUselessEndpoints(newOpts []option.Endpoint) {
+	exists := make(map[string]bool)
+	for i, opt := range newOpts {
+		var tag string
+		if opt.Tag != "" {
+			tag = F.ToString(a.providerTag, "/", opt.Tag)
+		} else {
+			tag = F.ToString(a.providerTag, "/", i)
+		}
+		exists[tag] = true
+	}
+	var remaining []adapter.Outbound
+	for _, ob := range a.outbounds {
+		if _, isEndpoint := a.endpoint.Get(ob.Tag()); isEndpoint && !exists[ob.Tag()] {
+			if err := a.endpoint.Remove(ob.Tag()); err != nil {
+				a.logger.Error(err, "close endpoint [", ob.Tag(), "]")
+			}
+			delete(a.outboundsByTag, ob.Tag())
+			continue
+		}
+		remaining = append(remaining, ob)
+	}
+	a.outbounds = remaining
+}
+
 
 func (a *Adapter) removeUseless(newOpts []option.Outbound) {
 	if len(a.outbounds) == 0 {

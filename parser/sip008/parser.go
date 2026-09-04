@@ -25,11 +25,11 @@ type ShadowsocksServerDocument struct {
 	PluginOpts string `json:"plugin_opts"`
 }
 
-func ParseSIP008Subscription(_ context.Context, content string) ([]option.Outbound, error) {
+func ParseSIP008Subscription(_ context.Context, content string) ([]option.Outbound, []option.Endpoint, error) {
 	var document ShadowsocksDocument
 	err := json.Unmarshal([]byte(content), &document)
 	if err != nil {
-		return nil, E.Cause(err, "parse SIP008 document")
+		return nil, nil, E.Cause(err, "parse SIP008 document")
 	}
 
 	var servers []option.Outbound
@@ -49,5 +49,5 @@ func ParseSIP008Subscription(_ context.Context, content string) ([]option.Outbou
 			},
 		})
 	}
-	return servers, nil
+	return servers, nil, nil
 }

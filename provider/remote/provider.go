@@ -48,6 +48,7 @@ type ProviderRemote struct {
 	dialer           N.Dialer
 	lastEtag         string
 	lastOutOpts      []option.Outbound
+	lastEPOpts       []option.Endpoint
 	lastUpdated      time.Time
 	subscriptionInfo adapter.SubscriptionInfo
 	ticker           *time.Ticker
@@ -81,11 +82,12 @@ func NewProviderRemote(ctx context.Context, router adapter.Router, logFactory lo
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	outbound := service.FromContext[adapter.OutboundManager](ctx)
+	endpointMgr := service.FromContext[adapter.EndpointManager](ctx)
 	logger := logFactory.NewLogger(F.ToString("provider/remote", "[", tag, "]"))
 	updateChan := make(chan struct{})
 	close(updateChan)
 	p := &ProviderRemote{
-		Adapter:  provider.NewAdapter(ctx, router, outbound, logFactory, logger, tag, C.ProviderTypeRemote, options.HealthCheck),
+		Adapter:  provider.NewAdapter(ctx, router, outbound, endpointMgr, logFactory, logger, tag, C.ProviderTypeRemote, options.HealthCheck),
 		ctx:      ctx,
 		cancel:   cancel,
 		logger:   logger,
@@ -254,6 +256,7 @@ func (s *ProviderRemote) fetch(ctx context.Context) error {
 	if s.cacheFile != nil && s.cacheFile.StoreProviders() {
 		content, _ := json.Marshal(option.Options{
 			Outbounds: s.lastOutOpts,
+			Endpoints: s.lastEPOpts,
 		})
 		if hasInfo {
 			content = append([]byte(infoStr+"\n"), content...)
@@ -295,15 +298,20 @@ func (s *ProviderRemote) loopUpdate() {
 }
 
 func (s *ProviderRemote) updateProviderFromContent(content string) error {
-	outboundOpts, err := parser.ParseSubscription(s.ctx, content)
+	outboundOpts, endpointOpts, err := parser.ParseSubscription(s.ctx, content)
 	if err != nil {
 		return err
 	}
 	outboundOpts = common.Filter(outboundOpts, func(it option.Outbound) bool {
 		return (s.exclude == nil || !s.exclude.MatchString(it.Tag)) && (s.include == nil || s.include.MatchString(it.Tag))
 	})
+	endpointOpts = common.Filter(endpointOpts, func(it option.Endpoint) bool {
+		return (s.exclude == nil || !s.exclude.MatchString(it.Tag)) && (s.include == nil || s.include.MatchString(it.Tag))
+	})
 	s.UpdateOutbounds(s.lastOutOpts, outboundOpts)
 	s.lastOutOpts = outboundOpts
+	s.UpdateEndpoints(s.lastEPOpts, endpointOpts)
+	s.lastEPOpts = endpointOpts
 	return nil
 }
 

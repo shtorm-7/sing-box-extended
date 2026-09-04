@@ -12,6 +12,7 @@ import (
 
 type _SingBoxDocument struct {
 	Outbounds []option.Outbound `json:"outbounds"`
+	Endpoints []option.Endpoint `json:"endpoints"`
 }
 type SingBoxDocument _SingBoxDocument
 
@@ -21,24 +22,23 @@ func (o *SingBoxDocument) UnmarshalJSONContext(ctx context.Context, inputContent
 	if err != nil {
 		return err
 	}
-	outbounds, ok := content.Get("outbounds")
-	if !ok {
-		return E.New("missing outbounds in sing-box configuration")
-	}
-	var outs badjson.JSONArray
-	for i, outbound := range outbounds.(badjson.JSONArray) {
-		typeVal, loaded := outbound.(*badjson.JSONObject).Get("type")
-		if !loaded {
-			return E.New("missing type in outbound[", i, "]")
+	outbounds, hasOutbounds := content.Get("outbounds")
+	if hasOutbounds {
+		var outs badjson.JSONArray
+		for i, outbound := range outbounds.(badjson.JSONArray) {
+			typeVal, loaded := outbound.(*badjson.JSONObject).Get("type")
+			if !loaded {
+				return E.New("missing type in outbound[", i, "]")
+			}
+			switch typeVal.(string) {
+			case C.TypeDirect, C.TypeBlock, C.TypeDNS, C.TypeSelector, C.TypeURLTest:
+				continue
+			default:
+				outs = append(outs, outbound)
+			}
 		}
-		switch typeVal.(string) {
-		case C.TypeDirect, C.TypeBlock, C.TypeDNS, C.TypeSelector, C.TypeURLTest:
-			continue
-		default:
-			outs = append(outs, outbound)
-		}
+		content.Put("outbounds", outs)
 	}
-	content.Put("outbounds", outs)
 	inputContent, err = content.MarshalJSONContext(ctx)
 	if err != nil {
 		return err
@@ -46,13 +46,13 @@ func (o *SingBoxDocument) UnmarshalJSONContext(ctx context.Context, inputContent
 	return json.UnmarshalContext(ctx, inputContent, (*_SingBoxDocument)(o))
 }
 
-func ParseBoxSubscription(ctx context.Context, content string) ([]option.Outbound, error) {
+func ParseBoxSubscription(ctx context.Context, content string) ([]option.Outbound, []option.Endpoint, error) {
 	options, err := json.UnmarshalExtendedContext[SingBoxDocument](ctx, []byte(content))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if len(options.Outbounds) == 0 {
-		return nil, E.New("no servers found")
+	if len(options.Outbounds) == 0 && len(options.Endpoints) == 0 {
+		return nil, nil, E.New("no servers found")
 	}
-	return options.Outbounds, nil
+	return options.Outbounds, options.Endpoints, nil
 }
