@@ -28,12 +28,13 @@ var defaultClientHeader = http.Header{
 }
 
 type Client struct {
-	ctx        context.Context
-	serverAddr M.Socksaddr
-	transport  *http2.Transport
-	options    option.V2RayGRPCOptions
-	url        *url.URL
-	host       string
+	ctx           context.Context
+	serverAddr    M.Socksaddr
+	transport     *http2.Transport
+	options       option.V2RayGRPCOptions
+	requestHeader http.Header
+	url           *url.URL
+	host          string
 }
 
 func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, options option.V2RayGRPCOptions, tlsConfig tls.Config) adapter.V2RayClientTransport {
@@ -43,10 +44,15 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 	} else {
 		host = serverAddr.String()
 	}
+	requestHeader := defaultClientHeader.Clone()
+	if options.UserAgent != "" {
+		requestHeader.Set("User-Agent", options.UserAgent)
+	}
 	client := &Client{
-		ctx:        ctx,
-		serverAddr: serverAddr,
-		options:    options,
+		ctx:           ctx,
+		serverAddr:    serverAddr,
+		options:       options,
+		requestHeader: requestHeader,
 		transport: &http2.Transport{
 			ReadIdleTimeout:    time.Duration(options.IdleTimeout),
 			PingTimeout:        time.Duration(options.PingTimeout),
@@ -82,7 +88,7 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 		Method: http.MethodPost,
 		Body:   pipeInReader,
 		URL:    c.url,
-		Header: defaultClientHeader,
+		Header: c.requestHeader,
 		Host:   c.host,
 	}
 	request = request.WithContext(ctx)

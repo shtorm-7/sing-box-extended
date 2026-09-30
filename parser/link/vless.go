@@ -67,6 +67,11 @@ func parseVLESSLink(link string) (option.Outbound, error) {
 				if serviceName, exists := proxy["serviceName"]; exists && serviceName != "" {
 					Transport.GRPCOptions.ServiceName = serviceName
 				}
+				if userAgent, exists := proxy["userAgent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				} else if userAgent, exists := proxy["user_agent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				}
 			case "xhttp":
 				Transport.Type = C.V2RayTransportTypeXHTTP
 				if alpn, exists := proxy["alpn"]; exists && alpn != "" {

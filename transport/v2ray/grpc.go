@@ -23,7 +23,7 @@ func NewGRPCServer(ctx context.Context, logger logger.ContextLogger, options opt
 }
 
 func NewGRPCClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, options option.V2RayGRPCOptions, tlsConfig tls.Config) (adapter.V2RayClientTransport, error) {
-	if options.ForceLite {
+	if options.ForceLite || options.UserAgent != "" {
 		return v2raygrpclite.NewClient(ctx, dialer, serverAddr, options, tlsConfig), nil
 	}
 	return v2raygrpc.NewClient(ctx, dialer, serverAddr, options, tlsConfig)

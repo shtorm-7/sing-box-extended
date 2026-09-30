@@ -69,6 +69,13 @@ func parseTrojanLink(link string) (option.Outbound, error) {
 				if serviceName, exists := proxy["grpc-service-name"]; exists && serviceName != "" {
 					Transport.GRPCOptions.ServiceName = serviceName
 				}
+				if userAgent, exists := proxy["userAgent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				} else if userAgent, exists := proxy["user_agent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				} else if userAgent, exists := proxy["grpc-user-agent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				}
 			default:
 				continue
 			}

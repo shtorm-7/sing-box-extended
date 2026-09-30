@@ -118,6 +118,7 @@ type V2RayGRPCOptions struct {
 	IdleTimeout         badoption.Duration `json:"idle_timeout,omitempty"`
 	PingTimeout         badoption.Duration `json:"ping_timeout,omitempty"`
 	PermitWithoutStream bool               `json:"permit_without_stream,omitempty"`
+	UserAgent           string             `json:"user_agent,omitempty"`
 	ForceLite           bool               `json:"-"` // for test
 }
 

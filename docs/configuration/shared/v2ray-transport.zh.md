@@ -152,7 +152,8 @@ HTTP 请求的额外标头
   "service_name": "TunService",
   "idle_timeout": "15s",
   "ping_timeout": "15s",
-  "permit_without_stream": false
+  "permit_without_stream": false,
+  "user_agent": "sing-box"
 }
 ```
 
@@ -187,6 +188,12 @@ gRPC 服务名称。
 如果启用，客户端传输即使没有活动连接也会发送 keepalive ping。如果禁用，则在没有活动连接时，将忽略 `idle_timeout` 和 `ping_timeout`，并且不会发送 keepalive ping。
 
 默认禁用。
+
+#### user_agent
+
+gRPC 客户端发送的自定义 `User-Agent` 请求头值。
+
+设置后，客户端连接将使用 lite gRPC 引擎，该值会原样写入 `User-Agent` 请求头。标准 gRPC 引擎总是会在值后面追加自己的 `grpc-go/<version>`，无法在此使用。
 
 ### HTTPUpgrade
 

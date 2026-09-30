@@ -142,6 +142,11 @@ func parseVMessLink(link string) (option.Outbound, error) {
 				if host, exists := proxy["host"]; exists && host != "" {
 					Transport.GRPCOptions.ServiceName = host
 				}
+				if userAgent, exists := proxy["userAgent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				} else if userAgent, exists := proxy["user_agent"]; exists && userAgent != "" {
+					Transport.GRPCOptions.UserAgent = userAgent
+				}
 			default:
 				continue
 			}

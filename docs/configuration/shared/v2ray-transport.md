@@ -159,7 +159,8 @@ It needs to be consistent with the server.
   "service_name": "TunService",
   "idle_timeout": "15s",
   "ping_timeout": "15s",
-  "permit_without_stream": false
+  "permit_without_stream": false,
+  "user_agent": "sing-box"
 }
 ```
 
@@ -198,6 +199,12 @@ If disabled, when there are no active connections, `idle_timeout` and `ping_time
 pings will be sent.
 
 Disabled by default.
+
+#### user_agent
+
+Custom `User-Agent` header value sent by the gRPC client.
+
+When set, the lite gRPC engine is used for the client connection so the value is written verbatim as the `User-Agent` header. The standard gRPC engine always appends its own `grpc-go/<version>` to the value and cannot be used here.
 
 ### HTTPUpgrade
 
