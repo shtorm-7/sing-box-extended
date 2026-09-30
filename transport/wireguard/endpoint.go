@@ -239,6 +239,12 @@ func (e *Endpoint) Start(postStart bool) error {
 		if e.options.Amnezia.MaxHandshakeAttempts != nil {
 			ipcConf.WriteString("\nmax_handshake_attempts=" + e.options.Amnezia.MaxHandshakeAttempts.String())
 		}
+		if e.options.Amnezia.RandomTrailers {
+			ipcConf.WriteString("\nrandom_trailers=1")
+		}
+		if e.options.Amnezia.DisableCookies {
+			ipcConf.WriteString("\ndisable_cookies=1")
+		}
 	}
 	for _, peer := range e.peers {
 		ipcConf.WriteString(peer.GenerateIpcLines())

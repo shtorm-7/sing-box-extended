@@ -58,4 +58,6 @@ type WireGuardAmnezia struct {
 	RejectAfterTime        *badoption.Range[uint32] `json:"reject_after_time,omitempty"`
 	KeepaliveTimeout       *badoption.Range[uint32] `json:"keepalive_timeout,omitempty"`
 	MaxHandshakeAttempts   *badoption.Range[uint32] `json:"max_handshake_attempts,omitempty"`
+	RandomTrailers         bool                     `json:"random_trailers,omitempty"`
+	DisableCookies         bool                     `json:"disable_cookies,omitempty"`
 }

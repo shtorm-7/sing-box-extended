@@ -50,7 +50,9 @@
         "rekey_timeout": "4-6",
         "reject_after_time": "160-200",
         "keepalive_timeout": "8-12",
-        "max_handshake_attempts": "15-20"
+        "max_handshake_attempts": "15-20",
+        "random_trailers": true,
+        "disable_cookies": true
       }
     }
   ],

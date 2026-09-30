@@ -103,6 +103,8 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
 			RejectAfterTime:        options.Amnezia.RejectAfterTime,
 			KeepaliveTimeout:       options.Amnezia.KeepaliveTimeout,
 			MaxHandshakeAttempts:   options.Amnezia.MaxHandshakeAttempts,
+			RandomTrailers:         options.Amnezia.RandomTrailers,
+			DisableCookies:         options.Amnezia.DisableCookies,
 		}
 	}
 	networkManager := service.FromContext[adapter.NetworkManager](ctx)

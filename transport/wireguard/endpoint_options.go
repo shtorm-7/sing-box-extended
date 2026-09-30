@@ -74,4 +74,6 @@ type AmneziaOptions struct {
 	RejectAfterTime        *badoption.Range[uint32]
 	KeepaliveTimeout       *badoption.Range[uint32]
 	MaxHandshakeAttempts   *badoption.Range[uint32]
+	RandomTrailers         bool
+	DisableCookies         bool
 }
